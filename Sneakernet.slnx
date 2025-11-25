@@ -1,0 +1,5 @@
+<Solution>
+  <Project Path="GUI/GUI.csproj" Id="99bb6434-35db-4e4a-84aa-69ff00629125" />
+  <Project Path="Sneakernet/Sneakernet.csproj" />
+  <Project Path="SneakerNetTests/SneakerNetTests.csproj" Id="b134bd12-21ba-44c2-801c-9d4e3aa8b0a7" />
+</Solution>
