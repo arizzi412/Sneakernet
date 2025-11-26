@@ -12,17 +12,17 @@ namespace SneakerNetSync
         public string OffsiteTargetPath { get; set; } = "";
         public string OffsiteUsbPath { get; set; } = "";
 
-        // NEW: List of exclusion patterns
+        // Defaults updated to explicit folder syntax
         public List<string> ExclusionPatterns { get; set; } = new List<string>
         {
-            "System Volume Information",
-            "$RECYCLE.BIN",
+            "System Volume Information\\",
+            "$RECYCLE.BIN\\",
+            "bin\\",
+            "obj\\",
+            ".git\\",
+            ".vs\\",
             "*.tmp",
-            "Thumbs.db",
-            ".git",
-            "bin",
-            "obj",
-            ".vs"
+            "Thumbs.db"
         };
 
         private static string FilePath => Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "settings.json");

@@ -12,6 +12,7 @@
 
         private void InitializeComponent()
         {
+            System.ComponentModel.ComponentResourceManager resources = new System.ComponentModel.ComponentResourceManager(typeof(Form1));
             tabControls = new TabControl();
             tabHome = new TabPage();
             grpHomeActions = new GroupBox();
@@ -60,7 +61,7 @@
             tabControls.Location = new Point(0, 0);
             tabControls.Name = "tabControls";
             tabControls.SelectedIndex = 0;
-            tabControls.Size = new Size(684, 200);
+            tabControls.Size = new Size(684, 280);
             tabControls.TabIndex = 0;
             // 
             // tabHome
@@ -75,7 +76,7 @@
             tabHome.Location = new Point(4, 24);
             tabHome.Name = "tabHome";
             tabHome.Padding = new Padding(3);
-            tabHome.Size = new Size(676, 172);
+            tabHome.Size = new Size(676, 252);
             tabHome.TabIndex = 0;
             tabHome.Text = "1. AT HOME";
             tabHome.UseVisualStyleBackColor = true;
@@ -176,7 +177,7 @@
             tabOffsite.Location = new Point(4, 24);
             tabOffsite.Name = "tabOffsite";
             tabOffsite.Padding = new Padding(3);
-            tabOffsite.Size = new Size(676, 172);
+            tabOffsite.Size = new Size(676, 252);
             tabOffsite.TabIndex = 1;
             tabOffsite.Text = "2. AT OFFSITE";
             tabOffsite.UseVisualStyleBackColor = true;
@@ -283,14 +284,14 @@
             tabSettings.Controls.Add(label5);
             tabSettings.Location = new Point(4, 24);
             tabSettings.Name = "tabSettings";
-            tabSettings.Size = new Size(676, 172);
+            tabSettings.Size = new Size(676, 252);
             tabSettings.TabIndex = 2;
             tabSettings.Text = "3. Settings";
             tabSettings.UseVisualStyleBackColor = true;
             // 
             // btnSaveSettings
             // 
-            btnSaveSettings.Location = new Point(430, 45);
+            btnSaveSettings.Location = new Point(430, 140);
             btnSaveSettings.Name = "btnSaveSettings";
             btnSaveSettings.Size = new Size(100, 30);
             btnSaveSettings.TabIndex = 2;
@@ -300,21 +301,21 @@
             // 
             // txtExclusions
             // 
-            txtExclusions.Location = new Point(14, 45);
+            txtExclusions.Location = new Point(14, 140);
             txtExclusions.Multiline = true;
             txtExclusions.Name = "txtExclusions";
             txtExclusions.ScrollBars = ScrollBars.Vertical;
-            txtExclusions.Size = new Size(400, 110);
+            txtExclusions.Size = new Size(400, 100);
             txtExclusions.TabIndex = 1;
             // 
             // label5
             // 
             label5.AutoSize = true;
-            label5.Location = new Point(14, 14);
+            label5.Location = new Point(14, 10);
             label5.Name = "label5";
-            label5.Size = new Size(284, 30);
+            label5.Size = new Size(452, 105);
             label5.TabIndex = 0;
-            label5.Text = "Exclusion Patterns (One per line). Use * for wildcards.\r\nExamples:  *.tmp,  \\bin\\,  Thumbs.db,  secret_*.txt";
+            label5.Text = resources.GetString("label5.Text");
             // 
             // gridChanges
             // 
@@ -323,11 +324,11 @@
             gridChanges.Anchor = AnchorStyles.Top | AnchorStyles.Bottom | AnchorStyles.Left | AnchorStyles.Right;
             gridChanges.BackgroundColor = Color.White;
             gridChanges.ColumnHeadersHeightSizeMode = DataGridViewColumnHeadersHeightSizeMode.AutoSize;
-            gridChanges.Location = new Point(4, 206);
+            gridChanges.Location = new Point(4, 286);
             gridChanges.Name = "gridChanges";
             gridChanges.ReadOnly = true;
             gridChanges.RowHeadersVisible = false;
-            gridChanges.Size = new Size(676, 300);
+            gridChanges.Size = new Size(676, 220);
             gridChanges.TabIndex = 1;
             // 
             // progressBar1

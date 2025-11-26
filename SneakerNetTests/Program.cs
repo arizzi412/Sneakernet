@@ -36,6 +36,8 @@ namespace SneakerNetTests
                 // ROBUSTNESS
                 RunTest("12. Robust: Locked File Access", Test_Robust_LockedFile);
                 RunTest("13. Robust: Instruction File Cleanup on Init", Test_InstructionFile_Cleanup);
+
+                RunTest("14. Exclude: Folder vs File Name Conflict", Test_Exclude_FolderVsFile);
             }
             finally
             {
@@ -379,6 +381,37 @@ namespace SneakerNetTests
             // 3. Assert: Instructions file must be GONE. 
             // If it remains, the next "AnalyzeForOffsite" might execute it dangerously.
             Assert(!File.Exists(instrPath), "Instructions file was not deleted during Catalog generation!");
+        }
+        static void Test_Exclude_FolderVsFile()
+        {
+            var engine = new SyncEngine();
+            engine.GenerateCatalog(OffsitePath, UsbPath, null);
+
+            // 1. Setup:
+            // Create a FOLDER named "Data" at the root. (This should be excluded)
+            Directory.CreateDirectory(Path.Combine(MainPath, "Data"));
+            CreateFile(Path.Combine(MainPath, "Data"), "ignore_me.txt", "garbage");
+
+            // Create a FILE named "Data" inside a subfolder. (This should be kept)
+            // We put it in a subfolder because we can't have a file and folder with the same name in the same root.
+            Directory.CreateDirectory(Path.Combine(MainPath, "SafeZone"));
+            CreateFile(Path.Combine(MainPath, "SafeZone"), "Data", "Keep me, I am a file");
+
+            // 2. Define Exclusion: "Data\" 
+            // The trailing slash means "Exclude folders named Data, but keep files named Data"
+            var exclusions = new List<string> { "Data\\" };
+
+            // 3. Analyze
+            var instructions = engine.AnalyzeForHome(MainPath, UsbPath, exclusions, MockReport);
+
+            // 4. Assert
+            // We expect exactly 1 instruction: The COPY of "SafeZone\Data".
+            // The folder "Main\Data" and its contents should be invisible to the engine.
+            Assert(instructions.Count == 1, $"Expected 1 instruction, got {instructions.Count}");
+
+            var item = instructions[0];
+            Assert(item.Source.Contains("SafeZone") && item.Source.EndsWith("Data"),
+                   $"Should have preserved the file 'SafeZone\\Data'. Instead found: {item.Source}");
         }
 
 

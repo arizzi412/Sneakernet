@@ -1,4 +1,8 @@
-﻿using System.Text.Json;
+﻿using System;
+using System.Collections.Generic;
+using System.IO;
+using System.Linq;
+using System.Text.Json;
 using System.Text.RegularExpressions;
 
 namespace SneakerNetSync
@@ -11,6 +15,13 @@ namespace SneakerNetSync
         const string INSTRUCTIONS_FILENAME = "instructions.json";
         const string DATA_FOLDER_NAME = "Data";
         const int MIN_FREE_SPACE_MB = 200;
+
+        // Internal helper to track rule type
+        private class ExclusionRule
+        {
+            public Regex Pattern { get; set; }
+            public bool DirectoryOnly { get; set; }
+        }
 
         // --- PHASE 1: ANALYSIS ---
 
@@ -240,7 +251,6 @@ namespace SneakerNetSync
             try { if (Directory.Exists(usbDataRoot)) Directory.Delete(usbDataRoot, true); } catch { }
 
             report("Generating new catalog...", 100);
-            // Offsite doesn't filter exclusions. It represents truth.
             GenerateCatalog(offsitePath, usbPath, null);
 
             return result;
@@ -252,7 +262,6 @@ namespace SneakerNetSync
             string json = JsonSerializer.Serialize(files, new JsonSerializerOptions { WriteIndented = true });
             File.WriteAllText(Path.Combine(usbPath, CATALOG_FILENAME), json);
 
-            // Clean previous state
             string instrPath = Path.Combine(usbPath, INSTRUCTIONS_FILENAME);
             if (File.Exists(instrPath)) try { File.Delete(instrPath); } catch { }
 
@@ -260,7 +269,7 @@ namespace SneakerNetSync
             if (Directory.Exists(dataPath)) try { Directory.Delete(dataPath, true); } catch { }
         }
 
-        // --- CORE LOGIC (UPDATED FOR NTFS) ---
+        // --- CORE LOGIC ---
 
         private List<UpdateInstruction> GenerateInstructions(List<FileEntry> mainFiles, List<FileEntry> offsiteFiles)
         {
@@ -273,8 +282,6 @@ namespace SneakerNetSync
             {
                 if (offsitePathMap.TryGetValue(main.RelativePath, out var existing))
                 {
-                    // NTFS LOGIC: Exact match preferred. 
-                    // We allow 0.1s variance just for tick rounding issues during copy, but functionally this is "Exact".
                     bool isSame = (main.Size == existing.Size) &&
                                   (Math.Abs((main.LastWriteTime - existing.LastWriteTime).TotalSeconds) < 0.1);
 
@@ -297,7 +304,6 @@ namespace SneakerNetSync
                 FileEntry moveSource = null;
                 if (potentialMoveSources.TryGetValue(main.Size, out var candidates))
                 {
-                    // Stricter time check for moves too
                     var matchIndex = candidates.FindIndex(x => Math.Abs((x.LastWriteTime - main.LastWriteTime).TotalSeconds) < 0.1);
                     if (matchIndex != -1)
                     {
@@ -313,7 +319,6 @@ namespace SneakerNetSync
                 }
                 else
                 {
-                    // Handle Overwrite logic: Consume the old file if it exists so it doesn't get marked as DELETE
                     if (offsitePathMap.TryGetValue(main.RelativePath, out var oldVersion) && !matchedOffsitePaths.Contains(main.RelativePath))
                     {
                         if (potentialMoveSources.TryGetValue(oldVersion.Size, out var oldCandidates))
@@ -347,21 +352,36 @@ namespace SneakerNetSync
             var results = new List<FileEntry>();
             if (!Directory.Exists(root)) return results;
 
-            var excludeRegexes = new List<Regex>();
+            // Parse exclusions into regex rules
+            var rules = new List<ExclusionRule>();
             if (exclusions != null)
             {
-                foreach (var pattern in exclusions)
+                foreach (var rawPattern in exclusions)
                 {
-                    if (string.IsNullOrWhiteSpace(pattern)) continue;
+                    if (string.IsNullOrWhiteSpace(rawPattern)) continue;
+
+                    string pattern = rawPattern.Trim();
+                    bool isDirOnly = false;
+
+                    // Check for trailing slash logic
+                    if (pattern.EndsWith(Path.DirectorySeparatorChar) || pattern.EndsWith(Path.AltDirectorySeparatorChar))
+                    {
+                        isDirOnly = true;
+                        pattern = pattern.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+                    }
+
                     string regexPattern;
-                    // If no path separator, match file/folder name locally
-                    if (!pattern.Contains(Path.DirectorySeparatorChar) && !pattern.Contains('/'))
+                    // Standardize wildcard to regex
+                    if (!pattern.Contains(Path.DirectorySeparatorChar) && !pattern.Contains(Path.AltDirectorySeparatorChar))
                         regexPattern = "^" + Regex.Escape(pattern).Replace("\\*", ".*").Replace("\\?", ".") + "$";
                     else
-                        // Determine if we need to anchor to root? For now, treated as relative pattern.
                         regexPattern = Regex.Escape(pattern).Replace("\\*", ".*").Replace("\\?", ".");
 
-                    excludeRegexes.Add(new Regex(regexPattern, RegexOptions.IgnoreCase));
+                    rules.Add(new ExclusionRule
+                    {
+                        Pattern = new Regex(regexPattern, RegexOptions.IgnoreCase),
+                        DirectoryOnly = isDirOnly
+                    });
                 }
             }
 
@@ -372,7 +392,7 @@ namespace SneakerNetSync
                 foreach (var f in Directory.EnumerateFiles(root, "*", opts))
                 {
                     string relPath = Path.GetRelativePath(root, f);
-                    if (IsExcluded(relPath, excludeRegexes)) continue;
+                    if (IsExcluded(relPath, rules)) continue;
 
                     try
                     {
@@ -386,36 +406,40 @@ namespace SneakerNetSync
             return results;
         }
 
-        private bool IsExcluded(string relPath, List<Regex> regexes)
+        private bool IsExcluded(string relPath, List<ExclusionRule> rules)
         {
-            if (regexes == null || regexes.Count == 0) return false;
-            string name = Path.GetFileName(relPath);
-            foreach (var r in regexes)
-            {
-                if (r.IsMatch(name)) return true; // Match filename
-                if (r.IsMatch(relPath)) return true; // Match path
+            if (rules == null || rules.Count == 0) return false;
 
-                // Match folder segments (e.g. exclude "bin" checks "Project/bin/Debug")
-                var parts = relPath.Split(Path.DirectorySeparatorChar);
-                foreach (var part in parts) if (r.IsMatch(part)) return true;
+            string fileName = Path.GetFileName(relPath);
+            // Split path into directory segments
+            // e.g. "MyProject/bin/debug/app.dll" -> ["MyProject", "bin", "debug"]
+            var segments = Path.GetDirectoryName(relPath)?.Split(new[] { Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar }, StringSplitOptions.RemoveEmptyEntries);
+
+            foreach (var rule in rules)
+            {
+                // 1. Check Directory Segments (Applies to both File and Folder exclusions)
+                if (segments != null)
+                {
+                    foreach (var part in segments)
+                    {
+                        if (rule.Pattern.IsMatch(part)) return true;
+                    }
+                }
+
+                // 2. Check Filename (Skip if this rule is strictly for folders)
+                if (!rule.DirectoryOnly)
+                {
+                    if (rule.Pattern.IsMatch(fileName)) return true;
+                    // Also check full relative path for complex patterns like "Docs/Secret.txt"
+                    if (rule.Pattern.IsMatch(relPath)) return true;
+                }
             }
             return false;
         }
 
-        private static List<FileEntry> LoadCatalog(string p) => File.Exists(p) ? JsonSerializer.Deserialize<List<FileEntry>>(File.ReadAllText(p)) : new List<FileEntry>();
-        private static long GetFreeSpaceMb(string p) => new DriveInfo(Path.GetPathRoot(p)).AvailableFreeSpace / 1024 / 1024;
-        private static string BytesToMb(long b) => (b / 1024.0 / 1024.0).ToString("0.00") + " MB";
-        private static void CleanupEmptyDirs(string p)
-        {
-            try
-            {
-                foreach (var d in Directory.GetDirectories(p))
-                {
-                    CleanupEmptyDirs(d);
-                    if (!Directory.EnumerateFileSystemEntries(d).Any()) Directory.Delete(d);
-                }
-            }
-            catch { }
-        }
+        private List<FileEntry> LoadCatalog(string p) => File.Exists(p) ? JsonSerializer.Deserialize<List<FileEntry>>(File.ReadAllText(p)) : new List<FileEntry>();
+        private long GetFreeSpaceMb(string p) => new DriveInfo(Path.GetPathRoot(p)).AvailableFreeSpace / 1024 / 1024;
+        private string BytesToMb(long b) => (b / 1024.0 / 1024.0).ToString("0.00") + " MB";
+        private void CleanupEmptyDirs(string p) { try { foreach (var d in Directory.GetDirectories(p)) { CleanupEmptyDirs(d); if (!Directory.EnumerateFileSystemEntries(d).Any()) Directory.Delete(d); } } catch { } }
     }
 }

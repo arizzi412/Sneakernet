@@ -117,4 +117,13 @@
   <resheader name="writer">
     <value>System.Resources.ResXResourceWriter, System.Windows.Forms, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089</value>
   </resheader>
+  <data name="label5.Text" xml:space="preserve">
+    <value>Exclusion Patterns (One per line). Wildcards (*) supported.
+
+IMPORTANT: Only applies to 'Analyze' at Home.
+
+1. Folder Only: End with backslash (e.g. bin\ ) -&gt; Excludes folder 'bin', keeps file 'bin'.
+2. File Only: Type filename (e.g. secret.txt)
+3. Both: Type name (e.g. temp) -&gt; Excludes both folder 'temp' and file 'temp'.</value>
+  </data>
 </root>
