@@ -1,8 +1,4 @@
-﻿using System;
-using System.Collections.Generic;
-using System.IO;
-using System.Linq;
-using SneakerNetSync;
+﻿using SneakerNetSync;
 
 namespace SneakerNetTests
 {
@@ -39,6 +35,7 @@ namespace SneakerNetTests
 
                 // ROBUSTNESS
                 RunTest("12. Robust: Locked File Access", Test_Robust_LockedFile);
+                RunTest("13. Robust: Instruction File Cleanup on Init", Test_InstructionFile_Cleanup);
             }
             finally
             {
@@ -76,12 +73,12 @@ namespace SneakerNetTests
         static void Test_Base_Add()
         {
             var engine = new SyncEngine();
-            engine.GenerateCatalog(OffsitePath, UsbPath, null); // Init
+            engine.GenerateCatalog(OffsitePath, UsbPath, []); // Init
 
             // Action: Add file to Main
             CreateFile(MainPath, "newdoc.txt", "Important Data");
 
-            var instructions = engine.AnalyzeForHome(MainPath, UsbPath, null, MockReport);
+            var instructions = engine.AnalyzeForHome(MainPath, UsbPath, [], MockReport);
             Assert(instructions.Count == 1, "Should allow 1 copy");
             Assert(instructions[0].Action == "COPY", "Action is COPY");
             Assert(instructions[0].Source == "newdoc.txt", "File is newdoc.txt");
@@ -102,12 +99,12 @@ namespace SneakerNetTests
             CreateFile(OffsitePath, "todelete.txt", "data");
             SyncTimestamps("todelete.txt"); // Ensure synced
 
-            engine.GenerateCatalog(OffsitePath, UsbPath, null);
+            engine.GenerateCatalog(OffsitePath, UsbPath, []);
 
             // Action: Delete from Main
             File.Delete(Path.Combine(MainPath, "todelete.txt"));
 
-            var instructions = engine.AnalyzeForHome(MainPath, UsbPath, null, MockReport);
+            var instructions = engine.AnalyzeForHome(MainPath, UsbPath, [], MockReport);
             Assert(instructions.Count == 1, "Should have 1 instruction");
             Assert(instructions[0].Action == "DELETE", "Action is DELETE");
 
@@ -127,9 +124,9 @@ namespace SneakerNetTests
             CreateFile(MainPath, "report.doc", "Version 2 (Larger)"); // Diff size
             File.SetLastWriteTimeUtc(Path.Combine(MainPath, "report.doc"), DateTime.UtcNow.AddMinutes(5));
 
-            engine.GenerateCatalog(OffsitePath, UsbPath, null);
+            engine.GenerateCatalog(OffsitePath, UsbPath, []);
 
-            var instructions = engine.AnalyzeForHome(MainPath, UsbPath, null, MockReport);
+            var instructions = engine.AnalyzeForHome(MainPath, UsbPath, [], MockReport);
             Assert(instructions.Count == 1, "Should detect update");
             Assert(instructions[0].Action == "COPY", "Action is COPY (Overwrite)");
 
@@ -153,9 +150,9 @@ namespace SneakerNetTests
             File.SetLastWriteTimeUtc(Path.Combine(OffsitePath, "cat.jpg"), t);
             File.SetLastWriteTimeUtc(Path.Combine(MainPath, "dog.jpg"), t);
 
-            engine.GenerateCatalog(OffsitePath, UsbPath, null);
+            engine.GenerateCatalog(OffsitePath, UsbPath, []);
 
-            var instructions = engine.AnalyzeForHome(MainPath, UsbPath, null, MockReport);
+            var instructions = engine.AnalyzeForHome(MainPath, UsbPath, [], MockReport);
             Assert(instructions.Count == 1, "Should detect move");
             Assert(instructions[0].Action == "MOVE", "Action is MOVE");
             Assert(instructions[0].Source == "cat.jpg", "Source correct");
@@ -165,14 +162,14 @@ namespace SneakerNetTests
         static void Test_Base_DeepRecursion()
         {
             var engine = new SyncEngine();
-            engine.GenerateCatalog(OffsitePath, UsbPath, null);
+            engine.GenerateCatalog(OffsitePath, UsbPath, []);
 
             // Create deep structure
             string deepDir = Path.Combine(MainPath, "A", "B", "C");
             Directory.CreateDirectory(deepDir);
             CreateFile(deepDir, "deep.txt", "Hidden treasure");
 
-            var instructions = engine.AnalyzeForHome(MainPath, UsbPath, null, MockReport);
+            var instructions = engine.AnalyzeForHome(MainPath, UsbPath, [], MockReport);
             Assert(instructions.Count == 1, "Found deep file");
             Assert(instructions[0].Source.Contains("C"), "Path contains folders");
 
@@ -209,8 +206,8 @@ namespace SneakerNetTests
             File.SetLastWriteTimeUtc(Path.Combine(OffsitePath, "B.txt"), t2);
             File.SetLastWriteTimeUtc(Path.Combine(MainPath, "A.txt"), t2); // B moved to A
 
-            engine.GenerateCatalog(OffsitePath, UsbPath, null);
-            var instructions = engine.AnalyzeForHome(MainPath, UsbPath, null, MockReport);
+            engine.GenerateCatalog(OffsitePath, UsbPath, []);
+            var instructions = engine.AnalyzeForHome(MainPath, UsbPath, [], MockReport);
 
             Assert(instructions.Count == 2, "2 Moves");
             Assert(instructions.All(x => x.Action == "MOVE"), "All moves");
@@ -234,8 +231,8 @@ namespace SneakerNetTests
             if (Directory.Exists(Path.Combine(MainPath, "Data"))) Directory.Delete(Path.Combine(MainPath, "Data"), true);
             CreateFile(MainPath, "Data", "Im a file");
 
-            engine.GenerateCatalog(OffsitePath, UsbPath, null);
-            var instructions = engine.AnalyzeForHome(MainPath, UsbPath, null, MockReport);
+            engine.GenerateCatalog(OffsitePath, UsbPath, []);
+            var instructions = engine.AnalyzeForHome(MainPath, UsbPath, [], MockReport);
 
             // Should imply: Delete "Data/sub.txt", Copy "Data"
             // Note: The logic might generate a DELETE for sub.txt and a COPY for Data.
@@ -251,9 +248,9 @@ namespace SneakerNetTests
         {
             var engine = new SyncEngine();
             CreateFile(MainPath, "zero.bin", "");
-            engine.GenerateCatalog(OffsitePath, UsbPath, null);
+            engine.GenerateCatalog(OffsitePath, UsbPath, []);
 
-            var instructions = engine.AnalyzeForHome(MainPath, UsbPath, null, MockReport);
+            var instructions = engine.AnalyzeForHome(MainPath, UsbPath, [], MockReport);
             Assert(instructions.Count == 1, "Detects zero byte file");
 
             engine.ExecuteHomeTransfer(MainPath, UsbPath, instructions, MockReport);
@@ -270,7 +267,7 @@ namespace SneakerNetTests
         static void Test_Exclude_NewFile()
         {
             var engine = new SyncEngine();
-            engine.GenerateCatalog(OffsitePath, UsbPath, null);
+            engine.GenerateCatalog(OffsitePath, UsbPath, []);
 
             CreateFile(MainPath, "good.txt", "keep");
             CreateFile(MainPath, "bad.tmp", "ignore");
@@ -285,7 +282,7 @@ namespace SneakerNetTests
         static void Test_Exclude_Folder()
         {
             var engine = new SyncEngine();
-            engine.GenerateCatalog(OffsitePath, UsbPath, null);
+            engine.GenerateCatalog(OffsitePath, UsbPath, []);
 
             Directory.CreateDirectory(Path.Combine(MainPath, "bin"));
             CreateFile(Path.Combine(MainPath, "bin"), "exec.dll", "binary");
@@ -308,7 +305,7 @@ namespace SneakerNetTests
             SyncTimestamps("secret.log");
 
             // Create catalog representing this state
-            engine.GenerateCatalog(OffsitePath, UsbPath, null);
+            engine.GenerateCatalog(OffsitePath, UsbPath, []);
 
             // Now, User decides to exclude *.log
             var exclusions = new List<string> { "*.log" };
@@ -332,7 +329,7 @@ namespace SneakerNetTests
         static void Test_Robust_LockedFile()
         {
             var engine = new SyncEngine();
-            engine.GenerateCatalog(OffsitePath, UsbPath, null);
+            engine.GenerateCatalog(OffsitePath, UsbPath, []);
 
             string lockedPath = Path.Combine(MainPath, "locked.txt");
             CreateFile(MainPath, "locked.txt", "Can't touch this");
@@ -341,7 +338,7 @@ namespace SneakerNetTests
             using (FileStream fs = File.Open(lockedPath, FileMode.Open, FileAccess.Read, FileShare.None))
             {
                 // File is now locked by this process
-                var instructions = engine.AnalyzeForHome(MainPath, UsbPath, null, MockReport);
+                var instructions = engine.AnalyzeForHome(MainPath, UsbPath, [], MockReport);
 
                 // Scanner might skip it or fail to read info. 
                 // Since we use EnumerationOptions, we get basic info even if locked, usually.
@@ -363,6 +360,27 @@ namespace SneakerNetTests
                 }
             }
         }
+
+        static void Test_InstructionFile_Cleanup()
+        {
+            var engine = new SyncEngine();
+
+            // 1. Setup: Creates a dummy instructions.json on USB
+            // This simulates a state where the user did an analysis at Home,
+            // but then decided to Reset/Initialize at Offsite instead of applying updates.
+            string instrPath = Path.Combine(UsbPath, "instructions.json");
+            File.WriteAllText(instrPath, "[ { \"Action\": \"DELETE\", \"Source\": \"Critical.txt\" } ]");
+
+            Assert(File.Exists(instrPath), "Instructions file setup failed");
+
+            // 2. Action: Generate Catalog (Initialize)
+            engine.GenerateCatalog(OffsitePath, UsbPath, null);
+
+            // 3. Assert: Instructions file must be GONE. 
+            // If it remains, the next "AnalyzeForOffsite" might execute it dangerously.
+            Assert(!File.Exists(instrPath), "Instructions file was not deleted during Catalog generation!");
+        }
+
 
         // ========================================================================
         // HELPERS

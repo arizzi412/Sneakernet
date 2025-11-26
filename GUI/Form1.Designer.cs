@@ -35,9 +35,9 @@
             txtOffsiteTarget = new TextBox();
             label4 = new Label();
             tabSettings = new TabPage();
-            label5 = new Label();
-            txtExclusions = new TextBox();
             btnSaveSettings = new Button();
+            txtExclusions = new TextBox();
+            label5 = new Label();
             gridChanges = new DataGridView();
             progressBar1 = new ProgressBar();
             lblStatus = new Label();
@@ -63,7 +63,7 @@
             tabControls.Size = new Size(684, 200);
             tabControls.TabIndex = 0;
             // 
-            // tabHome (Existing Layout Preserved)
+            // tabHome
             // 
             tabHome.Controls.Add(grpHomeActions);
             tabHome.Controls.Add(btnBrowseHomeUsb);
@@ -80,7 +80,7 @@
             tabHome.Text = "1. AT HOME";
             tabHome.UseVisualStyleBackColor = true;
             // 
-            // grpHomeActions, Buttons, etc... (Same as before)
+            // grpHomeActions
             // 
             grpHomeActions.Controls.Add(btnHomeExecute);
             grpHomeActions.Controls.Add(btnHomeAnalyze);
@@ -90,7 +90,9 @@
             grpHomeActions.TabIndex = 6;
             grpHomeActions.TabStop = false;
             grpHomeActions.Text = "Actions";
-
+            // 
+            // btnHomeExecute
+            // 
             btnHomeExecute.Enabled = false;
             btnHomeExecute.Location = new Point(198, 22);
             btnHomeExecute.Name = "btnHomeExecute";
@@ -99,7 +101,9 @@
             btnHomeExecute.Text = "Step 2: Sync to USB";
             btnHomeExecute.UseVisualStyleBackColor = true;
             btnHomeExecute.Click += btnHomeExecute_Click;
-
+            // 
+            // btnHomeAnalyze
+            // 
             btnHomeAnalyze.Location = new Point(15, 22);
             btnHomeAnalyze.Name = "btnHomeAnalyze";
             btnHomeAnalyze.Size = new Size(170, 35);
@@ -107,49 +111,60 @@
             btnHomeAnalyze.Text = "Step 1: Analyze Differences";
             btnHomeAnalyze.UseVisualStyleBackColor = true;
             btnHomeAnalyze.Click += btnHomeAnalyze_Click;
-
+            // 
+            // btnBrowseHomeUsb
+            // 
             btnBrowseHomeUsb.Location = new Point(593, 44);
             btnBrowseHomeUsb.Name = "btnBrowseHomeUsb";
             btnBrowseHomeUsb.Size = new Size(75, 23);
             btnBrowseHomeUsb.TabIndex = 5;
             btnBrowseHomeUsb.Text = "Browse";
             btnBrowseHomeUsb.Click += btnBrowseHomeUsb_Click;
-
+            // 
+            // txtHomeUsb
+            // 
             txtHomeUsb.Location = new Point(100, 44);
             txtHomeUsb.Name = "txtHomeUsb";
             txtHomeUsb.ReadOnly = true;
             txtHomeUsb.Size = new Size(487, 23);
             txtHomeUsb.TabIndex = 4;
-
+            // 
+            // label2
+            // 
             label2.AutoSize = true;
             label2.Location = new Point(8, 48);
             label2.Name = "label2";
             label2.Size = new Size(61, 15);
             label2.TabIndex = 7;
             label2.Text = "USB Drive:";
-
+            // 
+            // btnBrowseHomeMain
+            // 
             btnBrowseHomeMain.Location = new Point(593, 15);
             btnBrowseHomeMain.Name = "btnBrowseHomeMain";
             btnBrowseHomeMain.Size = new Size(75, 23);
             btnBrowseHomeMain.TabIndex = 2;
             btnBrowseHomeMain.Text = "Browse";
             btnBrowseHomeMain.Click += btnBrowseHomeMain_Click;
-
+            // 
+            // txtHomeMain
+            // 
             txtHomeMain.Location = new Point(100, 15);
             txtHomeMain.Name = "txtHomeMain";
             txtHomeMain.ReadOnly = true;
             txtHomeMain.Size = new Size(487, 23);
             txtHomeMain.TabIndex = 1;
-
+            // 
+            // label1
+            // 
             label1.AutoSize = true;
             label1.Location = new Point(8, 19);
             label1.Name = "label1";
             label1.Size = new Size(84, 15);
             label1.TabIndex = 8;
             label1.Text = "Main HD Path:";
-
             // 
-            // tabOffsite (Existing Layout Preserved)
+            // tabOffsite
             // 
             tabOffsite.Controls.Add(grpOffsiteActions);
             tabOffsite.Controls.Add(btnBrowseOffsiteUsb);
@@ -165,7 +180,9 @@
             tabOffsite.TabIndex = 1;
             tabOffsite.Text = "2. AT OFFSITE";
             tabOffsite.UseVisualStyleBackColor = true;
-
+            // 
+            // grpOffsiteActions
+            // 
             grpOffsiteActions.Controls.Add(btnInit);
             grpOffsiteActions.Controls.Add(btnOffsiteExecute);
             grpOffsiteActions.Controls.Add(btnOffsiteAnalyze);
@@ -175,7 +192,9 @@
             grpOffsiteActions.TabIndex = 13;
             grpOffsiteActions.TabStop = false;
             grpOffsiteActions.Text = "Actions";
-
+            // 
+            // btnInit
+            // 
             btnInit.Location = new Point(481, 22);
             btnInit.Name = "btnInit";
             btnInit.Size = new Size(155, 35);
@@ -183,7 +202,9 @@
             btnInit.Text = "Init / Reset Catalog";
             btnInit.UseVisualStyleBackColor = true;
             btnInit.Click += btnInit_Click;
-
+            // 
+            // btnOffsiteExecute
+            // 
             btnOffsiteExecute.Enabled = false;
             btnOffsiteExecute.Location = new Point(198, 22);
             btnOffsiteExecute.Name = "btnOffsiteExecute";
@@ -192,7 +213,9 @@
             btnOffsiteExecute.Text = "Step 2: Update Backup";
             btnOffsiteExecute.UseVisualStyleBackColor = true;
             btnOffsiteExecute.Click += btnOffsiteExecute_Click;
-
+            // 
+            // btnOffsiteAnalyze
+            // 
             btnOffsiteAnalyze.Location = new Point(15, 22);
             btnOffsiteAnalyze.Name = "btnOffsiteAnalyze";
             btnOffsiteAnalyze.Size = new Size(170, 35);
@@ -200,49 +223,60 @@
             btnOffsiteAnalyze.Text = "Step 1: View USB";
             btnOffsiteAnalyze.UseVisualStyleBackColor = true;
             btnOffsiteAnalyze.Click += btnOffsiteAnalyze_Click;
-
+            // 
+            // btnBrowseOffsiteUsb
+            // 
             btnBrowseOffsiteUsb.Location = new Point(593, 44);
             btnBrowseOffsiteUsb.Name = "btnBrowseOffsiteUsb";
             btnBrowseOffsiteUsb.Size = new Size(75, 23);
             btnBrowseOffsiteUsb.TabIndex = 12;
             btnBrowseOffsiteUsb.Text = "Browse";
             btnBrowseOffsiteUsb.Click += btnBrowseOffsiteUsb_Click;
-
+            // 
+            // txtOffsiteUsb
+            // 
             txtOffsiteUsb.Location = new Point(100, 44);
             txtOffsiteUsb.Name = "txtOffsiteUsb";
             txtOffsiteUsb.ReadOnly = true;
             txtOffsiteUsb.Size = new Size(487, 23);
             txtOffsiteUsb.TabIndex = 11;
-
+            // 
+            // label3
+            // 
             label3.AutoSize = true;
             label3.Location = new Point(8, 48);
             label3.Name = "label3";
             label3.Size = new Size(61, 15);
             label3.TabIndex = 14;
             label3.Text = "USB Drive:";
-
+            // 
+            // btnBrowseOffsiteTarget
+            // 
             btnBrowseOffsiteTarget.Location = new Point(593, 15);
             btnBrowseOffsiteTarget.Name = "btnBrowseOffsiteTarget";
             btnBrowseOffsiteTarget.Size = new Size(75, 23);
             btnBrowseOffsiteTarget.TabIndex = 9;
             btnBrowseOffsiteTarget.Text = "Browse";
             btnBrowseOffsiteTarget.Click += btnBrowseOffsiteTarget_Click;
-
+            // 
+            // txtOffsiteTarget
+            // 
             txtOffsiteTarget.Location = new Point(100, 15);
             txtOffsiteTarget.Name = "txtOffsiteTarget";
             txtOffsiteTarget.ReadOnly = true;
             txtOffsiteTarget.Size = new Size(487, 23);
             txtOffsiteTarget.TabIndex = 8;
-
+            // 
+            // label4
+            // 
             label4.AutoSize = true;
             label4.Location = new Point(8, 19);
             label4.Name = "label4";
             label4.Size = new Size(76, 15);
             label4.TabIndex = 15;
             label4.Text = "Backup Path:";
-
             // 
-            // tabSettings (NEW)
+            // tabSettings
             // 
             tabSettings.Controls.Add(btnSaveSettings);
             tabSettings.Controls.Add(txtExclusions);
@@ -254,34 +288,33 @@
             tabSettings.Text = "3. Settings";
             tabSettings.UseVisualStyleBackColor = true;
             // 
-            // label5
-            // 
-            label5.AutoSize = true;
-            label5.Location = new Point(14, 14);
-            label5.Name = "label5";
-            label5.Size = new Size(250, 15);
-            label5.TabIndex = 0;
-            label5.Text = "Files/Folders to Exclude (One per line, supports *):";
-            // 
-            // txtExclusions
-            // 
-            txtExclusions.Location = new Point(14, 32);
-            txtExclusions.Multiline = true;
-            txtExclusions.Name = "txtExclusions";
-            txtExclusions.ScrollBars = ScrollBars.Vertical;
-            txtExclusions.Size = new Size(400, 120);
-            txtExclusions.TabIndex = 1;
-            // 
             // btnSaveSettings
             // 
-            btnSaveSettings.Location = new Point(430, 32);
+            btnSaveSettings.Location = new Point(430, 45);
             btnSaveSettings.Name = "btnSaveSettings";
             btnSaveSettings.Size = new Size(100, 30);
             btnSaveSettings.TabIndex = 2;
             btnSaveSettings.Text = "Save Settings";
             btnSaveSettings.UseVisualStyleBackColor = true;
             btnSaveSettings.Click += btnSaveSettings_Click;
-
+            // 
+            // txtExclusions
+            // 
+            txtExclusions.Location = new Point(14, 45);
+            txtExclusions.Multiline = true;
+            txtExclusions.Name = "txtExclusions";
+            txtExclusions.ScrollBars = ScrollBars.Vertical;
+            txtExclusions.Size = new Size(400, 110);
+            txtExclusions.TabIndex = 1;
+            // 
+            // label5
+            // 
+            label5.AutoSize = true;
+            label5.Location = new Point(14, 14);
+            label5.Name = "label5";
+            label5.Size = new Size(284, 30);
+            label5.TabIndex = 0;
+            label5.Text = "Exclusion Patterns (One per line). Use * for wildcards.\r\nExamples:  *.tmp,  \\bin\\,  Thumbs.db,  secret_*.txt";
             // 
             // gridChanges
             // 
@@ -352,7 +385,6 @@
             PerformLayout();
         }
 
-        // Standard Controls
         private System.Windows.Forms.TabControl tabControls;
         private System.Windows.Forms.TabPage tabHome;
         private System.Windows.Forms.TabPage tabOffsite;
@@ -361,13 +393,9 @@
         private System.Windows.Forms.ProgressBar progressBar1;
         private System.Windows.Forms.Label lblStatus;
         private System.Windows.Forms.Label lblStats;
-
-        // Settings Controls
         private System.Windows.Forms.Label label5;
         private System.Windows.Forms.TextBox txtExclusions;
         private System.Windows.Forms.Button btnSaveSettings;
-
-        // Home Controls
         private System.Windows.Forms.GroupBox grpHomeActions;
         private System.Windows.Forms.Button btnHomeExecute;
         private System.Windows.Forms.Button btnHomeAnalyze;
@@ -377,8 +405,6 @@
         private System.Windows.Forms.Button btnBrowseHomeMain;
         private System.Windows.Forms.TextBox txtHomeMain;
         private System.Windows.Forms.Label label1;
-
-        // Offsite Controls
         private System.Windows.Forms.GroupBox grpOffsiteActions;
         private System.Windows.Forms.Button btnInit;
         private System.Windows.Forms.Button btnOffsiteExecute;

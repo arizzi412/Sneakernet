@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.ComponentModel;
 using System.Drawing;
 using System.Linq;
 using System.Threading.Tasks;
@@ -13,6 +14,10 @@ namespace GUI
         private readonly SyncEngine _engine;
         private List<UpdateInstruction> _pendingInstructions;
         private AppSettings _settings;
+
+        // Sorting State
+        private int _sortColumnIndex = -1;
+        private SortOrder _sortOrder = SortOrder.None;
 
         public Form1()
         {
@@ -58,18 +63,68 @@ namespace GUI
         {
             gridChanges.AutoGenerateColumns = false;
             gridChanges.Columns.Clear();
-            gridChanges.Columns.Add(new DataGridViewTextBoxColumn { HeaderText = "Action", DataPropertyName = "Action", Width = 70 });
-            gridChanges.Columns.Add(new DataGridViewTextBoxColumn { HeaderText = "File / Source", DataPropertyName = "Source", Width = 280 });
-            gridChanges.Columns.Add(new DataGridViewTextBoxColumn { HeaderText = "Destination", DataPropertyName = "Destination", Width = 280 });
-            gridChanges.Columns.Add(new DataGridViewTextBoxColumn { HeaderText = "Size", DataPropertyName = "SizeInfo", Width = 80 });
 
+            // Add Columns with DataPropertyName
+            gridChanges.Columns.Add(new DataGridViewTextBoxColumn { HeaderText = "Action", DataPropertyName = "Action", Width = 70, SortMode = DataGridViewColumnSortMode.Programmatic });
+            gridChanges.Columns.Add(new DataGridViewTextBoxColumn { HeaderText = "File / Source", DataPropertyName = "Source", Width = 280, SortMode = DataGridViewColumnSortMode.Programmatic });
+            gridChanges.Columns.Add(new DataGridViewTextBoxColumn { HeaderText = "Destination", DataPropertyName = "Destination", Width = 280, SortMode = DataGridViewColumnSortMode.Programmatic });
+            // Sort by RawSizeBytes via custom logic, but display SizeInfo
+            gridChanges.Columns.Add(new DataGridViewTextBoxColumn { HeaderText = "Size", DataPropertyName = "SizeInfo", Width = 80, SortMode = DataGridViewColumnSortMode.Programmatic });
+
+            // Color Coding
             gridChanges.CellFormatting += (s, e) => {
-                if (e.RowIndex < 0 || _pendingInstructions == null || e.RowIndex >= _pendingInstructions.Count) return;
-                var item = _pendingInstructions[e.RowIndex];
+                if (e.RowIndex < 0 || e.RowIndex >= gridChanges.Rows.Count) return;
+                var item = gridChanges.Rows[e.RowIndex].DataBoundItem as UpdateInstruction;
+                if (item == null) return;
+
                 if (item.Action == "DELETE") e.CellStyle.BackColor = Color.FromArgb(255, 235, 235); // Light Red
                 else if (item.Action == "COPY") e.CellStyle.BackColor = Color.FromArgb(235, 255, 235); // Light Green
                 else if (item.Action == "MOVE") e.CellStyle.BackColor = Color.FromArgb(235, 245, 255); // Light Blue
             };
+
+            // Sorting Event
+            gridChanges.ColumnHeaderMouseClick += GridChanges_ColumnHeaderMouseClick;
+        }
+
+        private void GridChanges_ColumnHeaderMouseClick(object sender, DataGridViewCellMouseEventArgs e)
+        {
+            if (_pendingInstructions == null || !_pendingInstructions.Any()) return;
+
+            // Determine sort direction
+            if (_sortColumnIndex == e.ColumnIndex)
+            {
+                _sortOrder = _sortOrder == SortOrder.Ascending ? SortOrder.Descending : SortOrder.Ascending;
+            }
+            else
+            {
+                _sortColumnIndex = e.ColumnIndex;
+                _sortOrder = SortOrder.Ascending;
+            }
+
+            // Perform Sort
+            var propName = gridChanges.Columns[e.ColumnIndex].DataPropertyName;
+            IEnumerable<UpdateInstruction> sorted = null;
+
+            Func<UpdateInstruction, object> keySelector = propName switch
+            {
+                "Action" => x => x.Action,
+                "Source" => x => x.Source,
+                "Destination" => x => x.Destination,
+                "SizeInfo" => x => x.RawSizeBytes, // Sort by raw bytes, not the string "5 MB"
+                _ => x => x.Source
+            };
+
+            if (_sortOrder == SortOrder.Ascending)
+                sorted = _pendingInstructions.OrderBy(keySelector);
+            else
+                sorted = _pendingInstructions.OrderByDescending(keySelector);
+
+            // Rebind
+            gridChanges.DataSource = sorted.ToList();
+
+            // Update Glyphs
+            foreach (DataGridViewColumn col in gridChanges.Columns) col.HeaderCell.SortGlyphDirection = SortOrder.None;
+            gridChanges.Columns[e.ColumnIndex].HeaderCell.SortGlyphDirection = _sortOrder;
         }
 
         // --- HOME TAB ---
@@ -81,13 +136,11 @@ namespace GUI
                 MessageBox.Show("Please select both Main and USB paths."); return;
             }
 
-            // Ensure settings are up to date with UI (for exclusions)
-            SaveSettingsFromUi();
-
+            SaveSettingsFromUi(); // Ensure settings are fresh
             _pendingInstructions = null;
             BindGrid();
 
-            await RunTask("Analysing drives... (This is fast)", reporter =>
+            await RunTask("Analysing drives...", reporter =>
             {
                 _pendingInstructions = _engine.AnalyzeForHome(txtHomeMain.Text, txtHomeUsb.Text, _settings.ExclusionPatterns, reporter);
             });
@@ -103,7 +156,7 @@ namespace GUI
             else
             {
                 lblStatus.Text = "All synced! No changes detected.";
-                MessageBox.Show("Your drives are already in sync. There is nothing to copy.", "Synced", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                MessageBox.Show("Your drives are already in sync.", "Synced", MessageBoxButtons.OK, MessageBoxIcon.Information);
             }
         }
 
@@ -114,7 +167,12 @@ namespace GUI
             SyncResult result = null;
             await RunTask("Syncing files to USB...", reporter =>
             {
-                result = _engine.ExecuteHomeTransfer(txtHomeMain.Text, txtHomeUsb.Text, _pendingInstructions, reporter);
+                // Note: If grid is sorted, we should probably process in original order or dependency order?
+                // Actually, for copies/moves/deletes, order usually doesn't matter unless there are chain dependencies.
+                // The engine handles "staged moves" so order is robust. We can pass the sorted list or original.
+                // Let's pass the list currently displayed (sorted) as it doesn't harm logic.
+                var listToProcess = (List<UpdateInstruction>)gridChanges.DataSource ?? _pendingInstructions;
+                result = _engine.ExecuteHomeTransfer(txtHomeMain.Text, txtHomeUsb.Text, listToProcess, reporter);
             });
 
             btnHomeExecute.Enabled = false;
@@ -167,7 +225,8 @@ namespace GUI
             SyncResult result = null;
             await RunTask("Applying updates to Backup Drive...", reporter =>
             {
-                result = _engine.ExecuteOffsiteUpdate(txtOffsiteTarget.Text, txtOffsiteUsb.Text, _pendingInstructions, reporter);
+                var listToProcess = (List<UpdateInstruction>)gridChanges.DataSource ?? _pendingInstructions;
+                result = _engine.ExecuteOffsiteUpdate(txtOffsiteTarget.Text, txtOffsiteUsb.Text, listToProcess, reporter);
             });
 
             btnOffsiteExecute.Enabled = false;
@@ -184,10 +243,7 @@ namespace GUI
 
             if (MessageBox.Show("This will scan the Backup drive and create a fresh catalog on the USB.\nDo this if it's your first run or if things seem out of sync.\n\nContinue?", "Initialize", MessageBoxButtons.YesNo, MessageBoxIcon.Question) == DialogResult.Yes)
             {
-                // Note: We don't apply exclusions here by default to ensure the catalog represents REALITY on the backup drive.
-                // However, you could pass _settings.ExclusionPatterns if you want the catalog to ignore files that shouldn't be there.
                 await RunTask("Generating Catalog...", reporter => _engine.GenerateCatalog(txtOffsiteTarget.Text, txtOffsiteUsb.Text, null));
-
                 lblStatus.Text = "Initialization Complete. USB is ready to go Home.";
                 MessageBox.Show("Catalog created successfully!", "Success", MessageBoxButtons.OK, MessageBoxIcon.Information);
             }
@@ -198,6 +254,8 @@ namespace GUI
         private void BindGrid()
         {
             gridChanges.DataSource = null;
+            _sortColumnIndex = -1; // Reset sort
+
             if (_pendingInstructions == null)
             {
                 lblStats.Text = "";
