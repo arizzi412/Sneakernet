@@ -38,13 +38,15 @@ namespace SneakerNetTests
                 RunTest("11. Exclude: Folder Pattern (bin\\)", Test_Exclude_FolderPattern);
                 RunTest("12. Exclude: Retroactive (Existing files get deleted)", Test_Exclude_Retroactive);
                 RunTest("13. Exclude: Folder vs File Name (Data\\ vs Data)", Test_Exclude_FolderVsFile);
+                RunTest("14. Exclude: Substring Safety Check", Test_Exclude_SubstringSafety);
+
 
                 // SAFETY
-                RunTest("14. Safety: Locked File Access", Test_Robust_LockedFile);
-                RunTest("15. Safety: Instructions Cleanup", Test_InstructionFile_Cleanup);
+                RunTest("15. Safety: Locked File Access", Test_Robust_LockedFile);
+                RunTest("16. Safety: Instructions Cleanup", Test_InstructionFile_Cleanup);
 
                 // COMPLEX SIMULATION
-                RunTest("16. COMPLEX: The 'Real World' Simulation", Test_Complex_Scenario);
+                RunTest("17. COMPLEX: The 'Real World' Simulation", Test_Complex_Scenario);
             }
             finally
             {
@@ -279,6 +281,47 @@ namespace SneakerNetTests
             File.WriteAllText(instrPath, "DUMMY DATA");
             engine.GenerateCatalog(OffsitePath, UsbPath, null);
             Assert(!File.Exists(instrPath), "Instructions file must be deleted");
+        }
+
+        static void Test_Exclude_SubstringSafety()
+        {
+            var engine = new SyncEngine();
+            engine.GenerateCatalog(OffsitePath, UsbPath, null);
+
+            // 1. Create a confusing structure
+            // "temp" -> Should be excluded
+            Directory.CreateDirectory(Path.Combine(MainPath, "temp"));
+            CreateFile(Path.Combine(MainPath, "temp"), "junk.txt", "x");
+
+            // "temporary" -> Should be KEPT (starts with temp)
+            Directory.CreateDirectory(Path.Combine(MainPath, "temporary"));
+            CreateFile(Path.Combine(MainPath, "temporary"), "keep1.txt", "k");
+
+            // "attempt" -> Should be KEPT (ends with temp)
+            Directory.CreateDirectory(Path.Combine(MainPath, "attempt"));
+            CreateFile(Path.Combine(MainPath, "attempt"), "keep2.txt", "k");
+
+            // "temp.txt" -> Should be KEPT (because we are excluding the FOLDER 'temp', not files starting with temp)
+            // Note: If you excluded "temp", it excludes exact file name "temp" OR exact folder name "temp".
+            CreateFile(MainPath, "temp.txt", "keep3");
+
+            // 2. Exclude exactly "temp" (and "temp\")
+            // We add both to prove neither accidentally kills "temporary"
+            var exclusions = new List<string> { "temp", "temp\\" };
+
+            // 3. Analyze
+            var instructions = engine.AnalyzeForHome(MainPath, UsbPath, exclusions, MockReport);
+
+            // 4. Assert
+            // We expect 3 COPIES: keep1, keep2, keep3. 
+            // We expect "junk.txt" to be ignored because it is inside "temp".
+            Assert(instructions.Count == 3, $"Expected 3 files, got {instructions.Count}");
+
+            var sources = instructions.Select(x => x.Source).ToList();
+            Assert(sources.Any(s => s.Contains("temporary")), "Failed to keep 'temporary' folder");
+            Assert(sources.Any(s => s.Contains("attempt")), "Failed to keep 'attempt' folder");
+            Assert(sources.Any(s => s.Contains("temp.txt")), "Failed to keep 'temp.txt'");
+            Assert(!sources.Any(s => s.Contains("junk.txt")), "Failed to exclude 'temp/junk.txt'");
         }
 
         static void Test_Complex_Scenario()

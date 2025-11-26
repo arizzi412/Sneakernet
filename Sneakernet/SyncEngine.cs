@@ -371,19 +371,28 @@ namespace SneakerNetSync
                     string pattern = rawPattern.Trim();
                     bool isDirOnly = false;
 
+                    // 1. Handle Folder-Only syntax (trailing slash)
                     if (pattern.EndsWith(Path.DirectorySeparatorChar) || pattern.EndsWith(Path.AltDirectorySeparatorChar))
                     {
                         isDirOnly = true;
                         pattern = pattern.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
                     }
 
-                    string regexPattern;
-                    if (!pattern.Contains(Path.DirectorySeparatorChar) && !pattern.Contains(Path.AltDirectorySeparatorChar))
-                        regexPattern = "^" + Regex.Escape(pattern).Replace("\\*", ".*").Replace("\\?", ".") + "$";
-                    else
-                        regexPattern = Regex.Escape(pattern).Replace("\\*", ".*").Replace("\\?", ".");
+                    // 2. Convert Wildcards to Regex
+                    // Escape special regex characters (like dots, brackets)
+                    string regexPattern = Regex.Escape(pattern)
+                                               .Replace("\\*", ".*")  // Convert * to .*
+                                               .Replace("\\?", ".");  // Convert ? to .
 
-                    rules.Add(new ExclusionRule { Pattern = new Regex(regexPattern, RegexOptions.IgnoreCase), DirectoryOnly = isDirOnly });
+                    // 3. STRICT ANCHORING: 
+                    // Always wrap in ^ and $ so "temp" does not match "template"
+                    regexPattern = "^" + regexPattern + "$";
+
+                    rules.Add(new ExclusionRule
+                    {
+                        Pattern = new Regex(regexPattern, RegexOptions.IgnoreCase),
+                        DirectoryOnly = isDirOnly
+                    });
                 }
             }
 
