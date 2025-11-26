@@ -16,7 +16,6 @@ namespace SneakerNetSync
         const string DATA_FOLDER_NAME = "Data";
         const int MIN_FREE_SPACE_MB = 200;
 
-        // Internal helper to track rule type
         private class ExclusionRule
         {
             public Regex Pattern { get; set; }
@@ -134,7 +133,7 @@ namespace SneakerNetSync
             int total = instructions.Count;
             int current = 0;
 
-            // 1. STAGE MOVES (Resolve Swaps)
+            // 1. STAGE MOVES (Resolve Swaps/Renames)
             var tempMoveMap = new Dictionary<UpdateInstruction, string>();
 
             foreach (var move in moves)
@@ -285,8 +284,19 @@ namespace SneakerNetSync
                     bool isSame = (main.Size == existing.Size) &&
                                   (Math.Abs((main.LastWriteTime - existing.LastWriteTime).TotalSeconds) < 0.1);
 
-                    if (isSame) matchedOffsitePaths.Add(existing.RelativePath);
-                    else unmatchedMainFiles.Add(main);
+                    if (isSame)
+                    {
+                        // Check for Case-Only Rename
+                        if (!string.Equals(main.RelativePath, existing.RelativePath, StringComparison.Ordinal))
+                        {
+                            instructions.Add(new UpdateInstruction { Action = "MOVE", Source = existing.RelativePath, Destination = main.RelativePath, SizeInfo = "-" });
+                        }
+                        matchedOffsitePaths.Add(existing.RelativePath);
+                    }
+                    else
+                    {
+                        unmatchedMainFiles.Add(main);
+                    }
                 }
                 else
                 {
@@ -352,18 +362,15 @@ namespace SneakerNetSync
             var results = new List<FileEntry>();
             if (!Directory.Exists(root)) return results;
 
-            // Parse exclusions into regex rules
             var rules = new List<ExclusionRule>();
             if (exclusions != null)
             {
                 foreach (var rawPattern in exclusions)
                 {
                     if (string.IsNullOrWhiteSpace(rawPattern)) continue;
-
                     string pattern = rawPattern.Trim();
                     bool isDirOnly = false;
 
-                    // Check for trailing slash logic
                     if (pattern.EndsWith(Path.DirectorySeparatorChar) || pattern.EndsWith(Path.AltDirectorySeparatorChar))
                     {
                         isDirOnly = true;
@@ -371,17 +378,12 @@ namespace SneakerNetSync
                     }
 
                     string regexPattern;
-                    // Standardize wildcard to regex
                     if (!pattern.Contains(Path.DirectorySeparatorChar) && !pattern.Contains(Path.AltDirectorySeparatorChar))
                         regexPattern = "^" + Regex.Escape(pattern).Replace("\\*", ".*").Replace("\\?", ".") + "$";
                     else
                         regexPattern = Regex.Escape(pattern).Replace("\\*", ".*").Replace("\\?", ".");
 
-                    rules.Add(new ExclusionRule
-                    {
-                        Pattern = new Regex(regexPattern, RegexOptions.IgnoreCase),
-                        DirectoryOnly = isDirOnly
-                    });
+                    rules.Add(new ExclusionRule { Pattern = new Regex(regexPattern, RegexOptions.IgnoreCase), DirectoryOnly = isDirOnly });
                 }
             }
 
@@ -409,28 +411,18 @@ namespace SneakerNetSync
         private bool IsExcluded(string relPath, List<ExclusionRule> rules)
         {
             if (rules == null || rules.Count == 0) return false;
-
             string fileName = Path.GetFileName(relPath);
-            // Split path into directory segments
-            // e.g. "MyProject/bin/debug/app.dll" -> ["MyProject", "bin", "debug"]
             var segments = Path.GetDirectoryName(relPath)?.Split(new[] { Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar }, StringSplitOptions.RemoveEmptyEntries);
 
             foreach (var rule in rules)
             {
-                // 1. Check Directory Segments (Applies to both File and Folder exclusions)
                 if (segments != null)
                 {
-                    foreach (var part in segments)
-                    {
-                        if (rule.Pattern.IsMatch(part)) return true;
-                    }
+                    foreach (var part in segments) if (rule.Pattern.IsMatch(part)) return true;
                 }
-
-                // 2. Check Filename (Skip if this rule is strictly for folders)
                 if (!rule.DirectoryOnly)
                 {
                     if (rule.Pattern.IsMatch(fileName)) return true;
-                    // Also check full relative path for complex patterns like "Docs/Secret.txt"
                     if (rule.Pattern.IsMatch(relPath)) return true;
                 }
             }

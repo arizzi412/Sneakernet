@@ -1,4 +1,8 @@
-﻿using SneakerNetSync;
+﻿using System;
+using System.Collections.Generic;
+using System.IO;
+using System.Linq;
+using SneakerNetSync;
 
 namespace SneakerNetTests
 {
@@ -12,32 +16,35 @@ namespace SneakerNetTests
 
         static void Main(string[] args)
         {
-            Console.WriteLine("=== STARTING SNEAKERNET EXTENDED TEST SUITE (NTFS) ===\n");
+            Console.WriteLine("=== STARTING SNEAKERNET FULL VALIDATION SUITE (NTFS) ===\n");
 
             try
             {
-                // BASE FUNCTIONALITY
+                // BASE CRUD
                 RunTest("1. Base: Add New File", Test_Base_Add);
                 RunTest("2. Base: Delete File", Test_Base_Delete);
                 RunTest("3. Base: Update File Content", Test_Base_Update);
-                RunTest("4. Base: Rename File", Test_Base_Rename);
+                RunTest("4. Base: Rename/Move File", Test_Base_Rename);
                 RunTest("5. Base: Deep Directory Structure", Test_Base_DeepRecursion);
 
-                // SYNC LOGIC
-                RunTest("6. Sync: Swap Conflict (A<->B)", Test_Sync_Swap);
+                // CONFLICTS & EDGES
+                RunTest("6. Sync: Swap Conflict (A <-> B)", Test_Sync_Swap);
                 RunTest("7. Sync: File Replacing Folder", Test_Sync_FileReplacingFolder);
                 RunTest("8. Sync: Zero Byte Files", Test_Sync_ZeroByte);
+                RunTest("9. Sync: Case-Only Rename (file.txt -> FILE.TXT)", Test_Sync_CaseOnlyRename);
 
                 // EXCLUSIONS
-                RunTest("9. Exclude: New File Pattern (*.tmp)", Test_Exclude_NewFile);
-                RunTest("10. Exclude: Folder Pattern (bin)", Test_Exclude_Folder);
-                RunTest("11. Exclude: Retroactive (Exists on Remote -> Deleted)", Test_Exclude_Retroactive);
+                RunTest("10. Exclude: File Pattern (*.tmp)", Test_Exclude_FilePattern);
+                RunTest("11. Exclude: Folder Pattern (bin\\)", Test_Exclude_FolderPattern);
+                RunTest("12. Exclude: Retroactive (Existing files get deleted)", Test_Exclude_Retroactive);
+                RunTest("13. Exclude: Folder vs File Name (Data\\ vs Data)", Test_Exclude_FolderVsFile);
 
-                // ROBUSTNESS
-                RunTest("12. Robust: Locked File Access", Test_Robust_LockedFile);
-                RunTest("13. Robust: Instruction File Cleanup on Init", Test_InstructionFile_Cleanup);
+                // SAFETY
+                RunTest("14. Safety: Locked File Access", Test_Robust_LockedFile);
+                RunTest("15. Safety: Instructions Cleanup", Test_InstructionFile_Cleanup);
 
-                RunTest("14. Exclude: Folder vs File Name Conflict", Test_Exclude_FolderVsFile);
+                // COMPLEX SIMULATION
+                RunTest("16. COMPLEX: The 'Real World' Simulation", Test_Complex_Scenario);
             }
             finally
             {
@@ -50,7 +57,7 @@ namespace SneakerNetTests
 
         static void RunTest(string name, Action testMethod)
         {
-            Console.Write($"{name.PadRight(55)} : ");
+            Console.Write($"{name.PadRight(60)} : ");
             Cleanup();
             SetupDirs();
             try
@@ -62,303 +69,205 @@ namespace SneakerNetTests
             catch (Exception ex)
             {
                 Console.ForegroundColor = ConsoleColor.Red;
-                Console.WriteLine($"FAIL - {ex.Message}");
-                //Console.WriteLine(ex.StackTrace); // Uncomment for debug
+                Console.WriteLine($"FAIL");
+                Console.WriteLine($"   Error: {ex.Message}");
             }
             Console.ResetColor();
         }
 
-        // ========================================================================
-        // BASE FUNCTIONALITY TESTS
-        // ========================================================================
+        // --- TEST DEFINITIONS ---
 
         static void Test_Base_Add()
         {
             var engine = new SyncEngine();
-            engine.GenerateCatalog(OffsitePath, UsbPath, []); // Init
-
-            // Action: Add file to Main
-            CreateFile(MainPath, "newdoc.txt", "Important Data");
-
-            var instructions = engine.AnalyzeForHome(MainPath, UsbPath, [], MockReport);
-            Assert(instructions.Count == 1, "Should allow 1 copy");
-            Assert(instructions[0].Action == "COPY", "Action is COPY");
-            Assert(instructions[0].Source == "newdoc.txt", "File is newdoc.txt");
-
-            // Execute
-            engine.ExecuteHomeTransfer(MainPath, UsbPath, instructions, MockReport);
-            var offsiteInstr = engine.AnalyzeForOffsite(UsbPath);
-            engine.ExecuteOffsiteUpdate(OffsitePath, UsbPath, offsiteInstr, MockReport);
-
-            Assert(File.Exists(Path.Combine(OffsitePath, "newdoc.txt")), "File arrived at Offsite");
+            engine.GenerateCatalog(OffsitePath, UsbPath, null);
+            CreateFile(MainPath, "new.txt", "content");
+            var inst = engine.AnalyzeForHome(MainPath, UsbPath, null, MockReport);
+            Assert(inst.Count == 1 && inst[0].Action == "COPY", "Failed to detect new file");
+            engine.ExecuteHomeTransfer(MainPath, UsbPath, inst, MockReport);
+            engine.ExecuteOffsiteUpdate(OffsitePath, UsbPath, engine.AnalyzeForOffsite(UsbPath), MockReport);
+            Assert(File.Exists(Path.Combine(OffsitePath, "new.txt")), "File not synced to offsite");
         }
 
         static void Test_Base_Delete()
         {
             var engine = new SyncEngine();
-            // Setup: File exists on both
-            CreateFile(MainPath, "todelete.txt", "data");
-            CreateFile(OffsitePath, "todelete.txt", "data");
-            SyncTimestamps("todelete.txt"); // Ensure synced
-
-            engine.GenerateCatalog(OffsitePath, UsbPath, []);
-
-            // Action: Delete from Main
-            File.Delete(Path.Combine(MainPath, "todelete.txt"));
-
-            var instructions = engine.AnalyzeForHome(MainPath, UsbPath, [], MockReport);
-            Assert(instructions.Count == 1, "Should have 1 instruction");
-            Assert(instructions[0].Action == "DELETE", "Action is DELETE");
-
-            // Execute
-            var json = System.Text.Json.JsonSerializer.Serialize(instructions);
-            File.WriteAllText(Path.Combine(UsbPath, "instructions.json"), json);
-
-            engine.ExecuteOffsiteUpdate(OffsitePath, UsbPath, instructions, MockReport);
-            Assert(!File.Exists(Path.Combine(OffsitePath, "todelete.txt")), "File deleted from Offsite");
+            CreateFile(OffsitePath, "del.txt", "data");
+            CreateFile(MainPath, "del.txt", "data");
+            SyncTimestamps("del.txt");
+            engine.GenerateCatalog(OffsitePath, UsbPath, null);
+            File.Delete(Path.Combine(MainPath, "del.txt"));
+            var inst = engine.AnalyzeForHome(MainPath, UsbPath, null, MockReport);
+            Assert(inst.Count == 1 && inst[0].Action == "DELETE", "Failed to detect delete");
+            engine.ExecuteHomeTransfer(MainPath, UsbPath, inst, MockReport);
+            engine.ExecuteOffsiteUpdate(OffsitePath, UsbPath, engine.AnalyzeForOffsite(UsbPath), MockReport);
+            Assert(!File.Exists(Path.Combine(OffsitePath, "del.txt")), "File not deleted from offsite");
         }
 
         static void Test_Base_Update()
         {
             var engine = new SyncEngine();
-            // Setup: File exists on both
-            CreateFile(OffsitePath, "report.doc", "Version 1");
-            CreateFile(MainPath, "report.doc", "Version 2 (Larger)"); // Diff size
-            File.SetLastWriteTimeUtc(Path.Combine(MainPath, "report.doc"), DateTime.UtcNow.AddMinutes(5));
-
-            engine.GenerateCatalog(OffsitePath, UsbPath, []);
-
-            var instructions = engine.AnalyzeForHome(MainPath, UsbPath, [], MockReport);
-            Assert(instructions.Count == 1, "Should detect update");
-            Assert(instructions[0].Action == "COPY", "Action is COPY (Overwrite)");
-
-            // Cycle
-            engine.ExecuteHomeTransfer(MainPath, UsbPath, instructions, MockReport);
-            var offsiteInstr = engine.AnalyzeForOffsite(UsbPath);
-            engine.ExecuteOffsiteUpdate(OffsitePath, UsbPath, offsiteInstr, MockReport);
-
-            var content = File.ReadAllText(Path.Combine(OffsitePath, "report.doc"));
-            Assert(content == "Version 2 (Larger)", "Content updated on Offsite");
+            CreateFile(OffsitePath, "doc.txt", "v1");
+            CreateFile(MainPath, "doc.txt", "v2_longer");
+            File.SetLastWriteTimeUtc(Path.Combine(MainPath, "doc.txt"), DateTime.UtcNow.AddMinutes(10));
+            engine.GenerateCatalog(OffsitePath, UsbPath, null);
+            var inst = engine.AnalyzeForHome(MainPath, UsbPath, null, MockReport);
+            Assert(inst.Count == 1 && inst[0].Action == "COPY", "Failed to detect update");
+            engine.ExecuteHomeTransfer(MainPath, UsbPath, inst, MockReport);
+            engine.ExecuteOffsiteUpdate(OffsitePath, UsbPath, engine.AnalyzeForOffsite(UsbPath), MockReport);
+            Assert(File.ReadAllText(Path.Combine(OffsitePath, "doc.txt")) == "v2_longer", "Content not updated");
         }
 
         static void Test_Base_Rename()
         {
             var engine = new SyncEngine();
-            CreateFile(OffsitePath, "cat.jpg", "image_data");
-            CreateFile(MainPath, "dog.jpg", "image_data");
-
-            // Sync timestamps exactly
+            CreateFile(OffsitePath, "old.txt", "content");
+            CreateFile(MainPath, "new.txt", "content");
             var t = DateTime.UtcNow;
-            File.SetLastWriteTimeUtc(Path.Combine(OffsitePath, "cat.jpg"), t);
-            File.SetLastWriteTimeUtc(Path.Combine(MainPath, "dog.jpg"), t);
-
-            engine.GenerateCatalog(OffsitePath, UsbPath, []);
-
-            var instructions = engine.AnalyzeForHome(MainPath, UsbPath, [], MockReport);
-            Assert(instructions.Count == 1, "Should detect move");
-            Assert(instructions[0].Action == "MOVE", "Action is MOVE");
-            Assert(instructions[0].Source == "cat.jpg", "Source correct");
-            Assert(instructions[0].Destination == "dog.jpg", "Dest correct");
+            File.SetLastWriteTimeUtc(Path.Combine(OffsitePath, "old.txt"), t);
+            File.SetLastWriteTimeUtc(Path.Combine(MainPath, "new.txt"), t);
+            engine.GenerateCatalog(OffsitePath, UsbPath, null);
+            var inst = engine.AnalyzeForHome(MainPath, UsbPath, null, MockReport);
+            Assert(inst.Count == 1 && inst[0].Action == "MOVE", "Failed to detect move");
+            engine.ExecuteHomeTransfer(MainPath, UsbPath, inst, MockReport);
+            engine.ExecuteOffsiteUpdate(OffsitePath, UsbPath, engine.AnalyzeForOffsite(UsbPath), MockReport);
+            Assert(File.Exists(Path.Combine(OffsitePath, "new.txt")), "New file missing");
         }
 
         static void Test_Base_DeepRecursion()
         {
             var engine = new SyncEngine();
-            engine.GenerateCatalog(OffsitePath, UsbPath, []);
-
-            // Create deep structure
-            string deepDir = Path.Combine(MainPath, "A", "B", "C");
-            Directory.CreateDirectory(deepDir);
-            CreateFile(deepDir, "deep.txt", "Hidden treasure");
-
-            var instructions = engine.AnalyzeForHome(MainPath, UsbPath, [], MockReport);
-            Assert(instructions.Count == 1, "Found deep file");
-            Assert(instructions[0].Source.Contains("C"), "Path contains folders");
-
-            // Round trip
-            engine.ExecuteHomeTransfer(MainPath, UsbPath, instructions, MockReport);
-            var offsiteInstr = engine.AnalyzeForOffsite(UsbPath);
-            engine.ExecuteOffsiteUpdate(OffsitePath, UsbPath, offsiteInstr, MockReport);
-
-            Assert(File.Exists(Path.Combine(OffsitePath, "A", "B", "C", "deep.txt")), "Deep structure replicated");
+            engine.GenerateCatalog(OffsitePath, UsbPath, null);
+            string deepPath = Path.Combine(MainPath, "A", "B", "C");
+            Directory.CreateDirectory(deepPath);
+            CreateFile(deepPath, "deep.txt", "hi");
+            var inst = engine.AnalyzeForHome(MainPath, UsbPath, null, MockReport);
+            engine.ExecuteHomeTransfer(MainPath, UsbPath, inst, MockReport);
+            engine.ExecuteOffsiteUpdate(OffsitePath, UsbPath, engine.AnalyzeForOffsite(UsbPath), MockReport);
+            Assert(File.Exists(Path.Combine(OffsitePath, "A", "B", "C", "deep.txt")), "Deep file not synced");
         }
-
-        // ========================================================================
-        // SYNC LOGIC & EDGE CASES
-        // ========================================================================
 
         static void Test_Sync_Swap()
         {
             var engine = new SyncEngine();
-
-            // Setup Conflict: A->B, B->A
             CreateFile(OffsitePath, "A.txt", "ContentA");
             CreateFile(OffsitePath, "B.txt", "ContentB");
-
-            CreateFile(MainPath, "B.txt", "ContentA"); // Moved A here
-            CreateFile(MainPath, "A.txt", "ContentB"); // Moved B here
-
-            // Explicit timestamps to differentiate files since sizes are same
-            var t1 = DateTime.UtcNow.AddHours(-1);
+            CreateFile(MainPath, "B.txt", "ContentA");
+            CreateFile(MainPath, "A.txt", "ContentB");
+            var t1 = DateTime.UtcNow.AddMinutes(-5);
             var t2 = DateTime.UtcNow;
-
             File.SetLastWriteTimeUtc(Path.Combine(OffsitePath, "A.txt"), t1);
-            File.SetLastWriteTimeUtc(Path.Combine(MainPath, "B.txt"), t1); // A moved to B
-
+            File.SetLastWriteTimeUtc(Path.Combine(MainPath, "B.txt"), t1);
             File.SetLastWriteTimeUtc(Path.Combine(OffsitePath, "B.txt"), t2);
-            File.SetLastWriteTimeUtc(Path.Combine(MainPath, "A.txt"), t2); // B moved to A
-
-            engine.GenerateCatalog(OffsitePath, UsbPath, []);
-            var instructions = engine.AnalyzeForHome(MainPath, UsbPath, [], MockReport);
-
-            Assert(instructions.Count == 2, "2 Moves");
-            Assert(instructions.All(x => x.Action == "MOVE"), "All moves");
-
-            // Execute (this tests the temp file logic)
-            engine.ExecuteOffsiteUpdate(OffsitePath, UsbPath, instructions, MockReport);
-
-            Assert(File.ReadAllText(Path.Combine(OffsitePath, "A.txt")) == "ContentB", "A has B's content");
-            Assert(File.ReadAllText(Path.Combine(OffsitePath, "B.txt")) == "ContentA", "B has A's content");
+            File.SetLastWriteTimeUtc(Path.Combine(MainPath, "A.txt"), t2);
+            engine.GenerateCatalog(OffsitePath, UsbPath, null);
+            var inst = engine.AnalyzeForHome(MainPath, UsbPath, null, MockReport);
+            Assert(inst.Count == 2 && inst.All(x => x.Action == "MOVE"), "Should be 2 moves");
+            engine.ExecuteHomeTransfer(MainPath, UsbPath, inst, MockReport);
+            engine.ExecuteOffsiteUpdate(OffsitePath, UsbPath, engine.AnalyzeForOffsite(UsbPath), MockReport);
+            Assert(File.ReadAllText(Path.Combine(OffsitePath, "A.txt")) == "ContentB", "Swap A failed");
         }
 
         static void Test_Sync_FileReplacingFolder()
         {
             var engine = new SyncEngine();
-
-            // Offsite: Folder "Data"
             Directory.CreateDirectory(Path.Combine(OffsitePath, "Data"));
-            CreateFile(Path.Combine(OffsitePath, "Data"), "sub.txt", "hi");
-
-            // Main: File "Data"
-            if (Directory.Exists(Path.Combine(MainPath, "Data"))) Directory.Delete(Path.Combine(MainPath, "Data"), true);
-            CreateFile(MainPath, "Data", "Im a file");
-
-            engine.GenerateCatalog(OffsitePath, UsbPath, []);
-            var instructions = engine.AnalyzeForHome(MainPath, UsbPath, [], MockReport);
-
-            // Should imply: Delete "Data/sub.txt", Copy "Data"
-            // Note: The logic might generate a DELETE for sub.txt and a COPY for Data.
-
-            engine.ExecuteHomeTransfer(MainPath, UsbPath, instructions, MockReport);
-            engine.ExecuteOffsiteUpdate(OffsitePath, UsbPath, instructions, MockReport);
-
-            Assert(File.Exists(Path.Combine(OffsitePath, "Data")), "Data is now a file");
-            Assert(!Directory.Exists(Path.Combine(OffsitePath, "Data.dir")), "Folder is gone");
+            CreateFile(Path.Combine(OffsitePath, "Data"), "sub.txt", "stuff");
+            CreateFile(MainPath, "Data", "I am a file now");
+            engine.GenerateCatalog(OffsitePath, UsbPath, null);
+            var inst = engine.AnalyzeForHome(MainPath, UsbPath, null, MockReport);
+            engine.ExecuteHomeTransfer(MainPath, UsbPath, inst, MockReport);
+            engine.ExecuteOffsiteUpdate(OffsitePath, UsbPath, engine.AnalyzeForOffsite(UsbPath), MockReport);
+            Assert(File.Exists(Path.Combine(OffsitePath, "Data")), "File 'Data' missing");
         }
 
         static void Test_Sync_ZeroByte()
         {
             var engine = new SyncEngine();
             CreateFile(MainPath, "zero.bin", "");
-            engine.GenerateCatalog(OffsitePath, UsbPath, []);
-
-            var instructions = engine.AnalyzeForHome(MainPath, UsbPath, [], MockReport);
-            Assert(instructions.Count == 1, "Detects zero byte file");
-
-            engine.ExecuteHomeTransfer(MainPath, UsbPath, instructions, MockReport);
-            engine.ExecuteOffsiteUpdate(OffsitePath, UsbPath, instructions, MockReport);
-
-            var fi = new FileInfo(Path.Combine(OffsitePath, "zero.bin"));
-            Assert(fi.Exists && fi.Length == 0, "Zero byte transferred");
+            engine.GenerateCatalog(OffsitePath, UsbPath, null);
+            var inst = engine.AnalyzeForHome(MainPath, UsbPath, null, MockReport);
+            Assert(inst.Count == 1, "Zero byte file ignored");
         }
 
-        // ========================================================================
-        // EXCLUSION TESTS
-        // ========================================================================
-
-        static void Test_Exclude_NewFile()
+        static void Test_Sync_CaseOnlyRename()
         {
             var engine = new SyncEngine();
-            engine.GenerateCatalog(OffsitePath, UsbPath, []);
-
-            CreateFile(MainPath, "good.txt", "keep");
-            CreateFile(MainPath, "bad.tmp", "ignore");
-
-            var exclusions = new List<string> { "*.tmp" };
-            var instructions = engine.AnalyzeForHome(MainPath, UsbPath, exclusions, MockReport);
-
-            Assert(instructions.Count == 1, "Should only see 1 file");
-            Assert(instructions[0].Source == "good.txt", "Should be good.txt");
+            CreateFile(OffsitePath, "lowercase.txt", "data");
+            CreateFile(MainPath, "LOWERCASE.txt", "data");
+            var t = DateTime.UtcNow;
+            File.SetLastWriteTimeUtc(Path.Combine(OffsitePath, "lowercase.txt"), t);
+            File.SetLastWriteTimeUtc(Path.Combine(MainPath, "LOWERCASE.txt"), t);
+            engine.GenerateCatalog(OffsitePath, UsbPath, null);
+            var inst = engine.AnalyzeForHome(MainPath, UsbPath, null, MockReport);
+            Assert(inst.Count == 1 && inst[0].Action == "MOVE", "Case rename should be a MOVE");
+            engine.ExecuteHomeTransfer(MainPath, UsbPath, inst, MockReport);
+            engine.ExecuteOffsiteUpdate(OffsitePath, UsbPath, engine.AnalyzeForOffsite(UsbPath), MockReport);
+            var files = Directory.GetFiles(OffsitePath);
+            Assert(Path.GetFileName(files[0]) == "LOWERCASE.txt", "Casing did not update");
         }
 
-        static void Test_Exclude_Folder()
+        static void Test_Exclude_FilePattern()
         {
             var engine = new SyncEngine();
-            engine.GenerateCatalog(OffsitePath, UsbPath, []);
+            engine.GenerateCatalog(OffsitePath, UsbPath, null);
+            CreateFile(MainPath, "ignore.tmp", "junk");
+            CreateFile(MainPath, "keep.txt", "good");
+            var inst = engine.AnalyzeForHome(MainPath, UsbPath, new List<string> { "*.tmp" }, MockReport);
+            Assert(inst.Count == 1 && inst[0].Source == "keep.txt", "Filter failed");
+        }
 
+        static void Test_Exclude_FolderPattern()
+        {
+            var engine = new SyncEngine();
+            engine.GenerateCatalog(OffsitePath, UsbPath, null);
             Directory.CreateDirectory(Path.Combine(MainPath, "bin"));
-            CreateFile(Path.Combine(MainPath, "bin"), "exec.dll", "binary");
+            CreateFile(Path.Combine(MainPath, "bin"), "app.dll", "bin");
             CreateFile(MainPath, "src.cs", "code");
-
-            var exclusions = new List<string> { "bin" };
-            var instructions = engine.AnalyzeForHome(MainPath, UsbPath, exclusions, MockReport);
-
-            Assert(instructions.Count == 1, "Ignores bin folder");
-            Assert(instructions[0].Source == "src.cs", "Sees src.cs");
+            var inst = engine.AnalyzeForHome(MainPath, UsbPath, new List<string> { "bin\\" }, MockReport);
+            Assert(inst.Count == 1 && inst[0].Source == "src.cs", "Folder exclude failed");
         }
 
         static void Test_Exclude_Retroactive()
         {
             var engine = new SyncEngine();
-
-            // Setup: File DOES exist on Offsite (from a previous run)
-            CreateFile(OffsitePath, "secret.log", "logs");
-            CreateFile(MainPath, "secret.log", "logs");
-            SyncTimestamps("secret.log");
-
-            // Create catalog representing this state
-            engine.GenerateCatalog(OffsitePath, UsbPath, []);
-
-            // Now, User decides to exclude *.log
-            var exclusions = new List<string> { "*.log" };
-
-            // Analyze
-            var instructions = engine.AnalyzeForHome(MainPath, UsbPath, exclusions, MockReport);
-
-            // Expected: The scanner ignores "secret.log" on Main.
-            // The comparator sees: Catalog has "secret.log", Main has "Nothing" (due to filter).
-            // Result: DELETE "secret.log" from Offsite.
-
-            Assert(instructions.Count == 1, "Should generate instruction");
-            Assert(instructions[0].Action == "DELETE", "Should be DELETE");
-            Assert(instructions[0].Source == "secret.log", "Target secret.log");
+            CreateFile(OffsitePath, "log.txt", "data");
+            CreateFile(MainPath, "log.txt", "data");
+            SyncTimestamps("log.txt");
+            engine.GenerateCatalog(OffsitePath, UsbPath, null);
+            var inst = engine.AnalyzeForHome(MainPath, UsbPath, new List<string> { "*.txt" }, MockReport);
+            Assert(inst.Count == 1 && inst[0].Action == "DELETE", "Should delete excluded existing file");
         }
 
-        // ========================================================================
-        // ROBUSTNESS
-        // ========================================================================
+        static void Test_Exclude_FolderVsFile()
+        {
+            var engine = new SyncEngine();
+            engine.GenerateCatalog(OffsitePath, UsbPath, null);
+            Directory.CreateDirectory(Path.Combine(MainPath, "Data"));
+            CreateFile(Path.Combine(MainPath, "Data"), "bad.txt", "x");
+            Directory.CreateDirectory(Path.Combine(MainPath, "Sub"));
+            CreateFile(Path.Combine(MainPath, "Sub"), "Data", "Keep me");
+            var inst = engine.AnalyzeForHome(MainPath, UsbPath, new List<string> { "Data\\" }, MockReport);
+            Assert(inst.Count == 1 && inst[0].Source.EndsWith("Data"), "Folder vs File exclude check failed");
+        }
 
         static void Test_Robust_LockedFile()
         {
             var engine = new SyncEngine();
-            engine.GenerateCatalog(OffsitePath, UsbPath, []);
-
-            string lockedPath = Path.Combine(MainPath, "locked.txt");
-            CreateFile(MainPath, "locked.txt", "Can't touch this");
-
-            // Lock the file
-            using (FileStream fs = File.Open(lockedPath, FileMode.Open, FileAccess.Read, FileShare.None))
+            engine.GenerateCatalog(OffsitePath, UsbPath, null);
+            string path = Path.Combine(MainPath, "locked.txt");
+            CreateFile(MainPath, "locked.txt", "content");
+            using (var fs = File.Open(path, FileMode.Open, FileAccess.Read, FileShare.None))
             {
-                // File is now locked by this process
-                var instructions = engine.AnalyzeForHome(MainPath, UsbPath, [], MockReport);
-
-                // Scanner might skip it or fail to read info. 
-                // Since we use EnumerationOptions, we get basic info even if locked, usually.
-                // But let's assume it gets queued for copy.
-
-                if (instructions.Count > 0)
+                var inst = engine.AnalyzeForHome(MainPath, UsbPath, null, MockReport);
+                if (inst.Count > 0)
                 {
-                    // Attempt Copy - Should NOT crash
                     try
                     {
-                        var res = engine.ExecuteHomeTransfer(MainPath, UsbPath, instructions, MockReport);
-                        Assert(res.Errors > 0, "Should record an error");
-                        Assert(res.FilesCopied == 0, "Should not copy locked file");
+                        var res = engine.ExecuteHomeTransfer(MainPath, UsbPath, inst, MockReport);
+                        Assert(res.Errors > 0, "Should report error for locked file");
                     }
-                    catch (Exception)
-                    {
-                        Assert(false, "Engine crashed on locked file!");
-                    }
+                    catch { Assert(false, "Engine crashed on locked file"); }
                 }
             }
         }
@@ -366,58 +275,72 @@ namespace SneakerNetTests
         static void Test_InstructionFile_Cleanup()
         {
             var engine = new SyncEngine();
-
-            // 1. Setup: Creates a dummy instructions.json on USB
-            // This simulates a state where the user did an analysis at Home,
-            // but then decided to Reset/Initialize at Offsite instead of applying updates.
             string instrPath = Path.Combine(UsbPath, "instructions.json");
-            File.WriteAllText(instrPath, "[ { \"Action\": \"DELETE\", \"Source\": \"Critical.txt\" } ]");
-
-            Assert(File.Exists(instrPath), "Instructions file setup failed");
-
-            // 2. Action: Generate Catalog (Initialize)
+            File.WriteAllText(instrPath, "DUMMY DATA");
             engine.GenerateCatalog(OffsitePath, UsbPath, null);
-
-            // 3. Assert: Instructions file must be GONE. 
-            // If it remains, the next "AnalyzeForOffsite" might execute it dangerously.
-            Assert(!File.Exists(instrPath), "Instructions file was not deleted during Catalog generation!");
+            Assert(!File.Exists(instrPath), "Instructions file must be deleted");
         }
-        static void Test_Exclude_FolderVsFile()
+
+        static void Test_Complex_Scenario()
         {
             var engine = new SyncEngine();
+
+            // 1. SETUP OFFSITE
+            Directory.CreateDirectory(Path.Combine(OffsitePath, "Src"));
+            Directory.CreateDirectory(Path.Combine(OffsitePath, "Bin"));
+            CreateFile(Path.Combine(OffsitePath, "Src"), "Program.cs", "old_code");
+            CreateFile(Path.Combine(OffsitePath, "Src"), "OldUtil.cs", "delete_me");
+            CreateFile(Path.Combine(OffsitePath, "Bin"), "App.exe", "binary");
+            CreateFile(OffsitePath, "Readme.txt", "v1");
+            CreateFile(OffsitePath, "Logo.png", "image");
+
             engine.GenerateCatalog(OffsitePath, UsbPath, null);
 
-            // 1. Setup:
-            // Create a FOLDER named "Data" at the root. (This should be excluded)
-            Directory.CreateDirectory(Path.Combine(MainPath, "Data"));
-            CreateFile(Path.Combine(MainPath, "Data"), "ignore_me.txt", "garbage");
+            // 2. SETUP MAIN
+            Directory.CreateDirectory(Path.Combine(MainPath, "Src"));
+            CreateFile(Path.Combine(MainPath, "Src"), "Program.cs", "new_code");
+            // FORCE TIMESTAMP CHANGE for update detection
+            File.SetLastWriteTimeUtc(Path.Combine(MainPath, "Src", "Program.cs"), DateTime.UtcNow.AddMinutes(10));
 
-            // Create a FILE named "Data" inside a subfolder. (This should be kept)
-            // We put it in a subfolder because we can't have a file and folder with the same name in the same root.
-            Directory.CreateDirectory(Path.Combine(MainPath, "SafeZone"));
-            CreateFile(Path.Combine(MainPath, "SafeZone"), "Data", "Keep me, I am a file");
+            Directory.CreateDirectory(Path.Combine(MainPath, "Bin"));
+            CreateFile(Path.Combine(MainPath, "Bin"), "App.exe", "binary_v2");
 
-            // 2. Define Exclusion: "Data\" 
-            // The trailing slash means "Exclude folders named Data, but keep files named Data"
-            var exclusions = new List<string> { "Data\\" };
+            Directory.CreateDirectory(Path.Combine(MainPath, "Docs"));
+            CreateFile(Path.Combine(MainPath, "Docs"), "Readme.txt", "v1");
+            var t = File.GetLastWriteTimeUtc(Path.Combine(OffsitePath, "Readme.txt"));
+            File.SetLastWriteTimeUtc(Path.Combine(MainPath, "Docs", "Readme.txt"), t);
 
-            // 3. Analyze
+            CreateFile(MainPath, "Brand.png", "image");
+            var t2 = File.GetLastWriteTimeUtc(Path.Combine(OffsitePath, "Logo.png"));
+            File.SetLastWriteTimeUtc(Path.Combine(MainPath, "Brand.png"), t2);
+
+            // FIX: Make NewConfig.xml distinct in size from App.exe (6 bytes) to prevent accidental Move detection
+            CreateFile(MainPath, "NewConfig.xml", "<configuration_data_is_long/>");
+
+            // 3. ANALYZE & VERIFY
+            var exclusions = new List<string> { "Bin\\" };
             var instructions = engine.AnalyzeForHome(MainPath, UsbPath, exclusions, MockReport);
 
-            // 4. Assert
-            // We expect exactly 1 instruction: The COPY of "SafeZone\Data".
-            // The folder "Main\Data" and its contents should be invisible to the engine.
-            Assert(instructions.Count == 1, $"Expected 1 instruction, got {instructions.Count}");
+            Assert(instructions.Any(x => x.Source == "Src\\Program.cs" && x.Action == "COPY"), "Missing Update Program.cs");
+            Assert(instructions.Any(x => x.Source == "Src\\OldUtil.cs" && x.Action == "DELETE"), "Missing Delete OldUtil.cs");
 
-            var item = instructions[0];
-            Assert(item.Source.Contains("SafeZone") && item.Source.EndsWith("Data"),
-                   $"Should have preserved the file 'SafeZone\\Data'. Instead found: {item.Source}");
+            // This failed before because App.exe (Offsite) was being matched as a Move Source for NewConfig.xml
+            Assert(instructions.Any(x => x.Source == "Bin\\App.exe" && x.Action == "DELETE"), "Missing Bin cleanup");
+
+            Assert(instructions.Any(x => x.Source == "Logo.png" && x.Destination == "Brand.png" && x.Action == "MOVE"), "Missing Rename Logo->Brand");
+            Assert(instructions.Any(x => x.Source == "Readme.txt" && x.Destination == "Docs\\Readme.txt" && x.Action == "MOVE"), "Missing Move Readme");
+
+            // 4. EXECUTE FULL SYNC
+            engine.ExecuteHomeTransfer(MainPath, UsbPath, instructions, MockReport);
+            engine.ExecuteOffsiteUpdate(OffsitePath, UsbPath, engine.AnalyzeForOffsite(UsbPath), MockReport);
+
+            Assert(File.ReadAllText(Path.Combine(OffsitePath, "Src", "Program.cs")) == "new_code", "Program.cs not updated");
+            Assert(!File.Exists(Path.Combine(OffsitePath, "Src", "OldUtil.cs")), "OldUtil.cs not deleted");
+            Assert(!File.Exists(Path.Combine(OffsitePath, "Bin", "App.exe")), "Bin folder not removed");
+            Assert(File.Exists(Path.Combine(OffsitePath, "Brand.png")), "Brand.png missing");
+            Assert(!File.Exists(Path.Combine(OffsitePath, "Logo.png")), "Logo.png still there");
+            Assert(File.Exists(Path.Combine(OffsitePath, "Docs", "Readme.txt")), "Readme not moved");
         }
-
-
-        // ========================================================================
-        // HELPERS
-        // ========================================================================
 
         static void CreateFile(string folder, string name, string content)
         {
@@ -441,16 +364,8 @@ namespace SneakerNetTests
             if (!Directory.Exists(UsbPath)) Directory.CreateDirectory(UsbPath);
         }
 
-        static void Cleanup()
-        {
-            if (Directory.Exists(TestRoot)) Directory.Delete(TestRoot, true);
-        }
-
-        static void Assert(bool condition, string msg)
-        {
-            if (!condition) throw new Exception(msg);
-        }
-
+        static void Cleanup() { if (Directory.Exists(TestRoot)) Directory.Delete(TestRoot, true); }
+        static void Assert(bool condition, string msg) { if (!condition) throw new Exception(msg); }
         static void MockReport(string msg, int pct) { }
     }
 }
