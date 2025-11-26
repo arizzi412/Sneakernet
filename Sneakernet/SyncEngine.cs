@@ -1,8 +1,4 @@
-﻿using System;
-using System.Collections.Generic;
-using System.IO;
-using System.Linq;
-using System.Text.Json;
+﻿using System.Text.Json;
 using System.Text.RegularExpressions;
 
 namespace SneakerNetSync
@@ -30,7 +26,7 @@ namespace SneakerNetSync
             report("Reading Offsite Catalog...", 10);
             var offsiteFiles = LoadCatalog(catalogPath);
 
-            report("Scanning Main Drive (applying exclusions)...", 30);
+            report("Scanning Main Drive...", 30);
             var mainFiles = ScanDrive(mainPath, exclusions);
 
             report("Calculating Changes...", 80);
@@ -72,8 +68,6 @@ namespace SneakerNetSync
 
                 if (usbFull)
                 {
-                    // If USB is full, we skip copying, but we also DO NOT add the instruction to the USB.
-                    // The instruction will be regenerated next time we analyze at home.
                     report($"Skipped (USB Full): {copy.Source}", pct);
                     continue;
                 }
@@ -90,7 +84,6 @@ namespace SneakerNetSync
                     string src = Path.Combine(mainPath, copy.Source);
                     string dest = Path.Combine(usbDataRoot, copy.Source);
 
-                    // Ensure source still exists (it might have been deleted while app was open)
                     if (!File.Exists(src))
                     {
                         report($"Skipped (Missing): {copy.Source}", pct);
@@ -200,7 +193,6 @@ namespace SneakerNetSync
                     {
                         result.Errors++;
                         report($"Error Finishing Move {move.Source}: {ex.Message}", pct);
-                        // Try restore
                         try
                         {
                             string originalAbs = Path.Combine(offsitePath, move.Source);
@@ -248,22 +240,19 @@ namespace SneakerNetSync
             try { if (Directory.Exists(usbDataRoot)) Directory.Delete(usbDataRoot, true); } catch { }
 
             report("Generating new catalog...", 100);
-            // Pass null for exclusions here? No, ideally we want the catalog to match our exclusion rules
-            // However, we don't have the exclusions list from Home available here easily. 
-            // Usually, Offsite doesn't need to filter, but if we want to be safe, pass an empty list 
-            // OR save exclusions to the USB. For simplicity, we scan everything at Offsite.
-            // If the Home side excludes it, it will simply be marked as DELETE next time.
+            // Offsite doesn't filter exclusions. It represents truth.
             GenerateCatalog(offsitePath, usbPath, null);
 
             return result;
         }
 
-        public void GenerateCatalog(string drivePath, string usbPath, List<string> exclusions = null)
+        public void GenerateCatalog(string drivePath, string usbPath, List<string> exclusions)
         {
             var files = ScanDrive(drivePath, exclusions);
             string json = JsonSerializer.Serialize(files, new JsonSerializerOptions { WriteIndented = true });
             File.WriteAllText(Path.Combine(usbPath, CATALOG_FILENAME), json);
 
+            // Clean previous state
             string instrPath = Path.Combine(usbPath, INSTRUCTIONS_FILENAME);
             if (File.Exists(instrPath)) try { File.Delete(instrPath); } catch { }
 
@@ -271,7 +260,7 @@ namespace SneakerNetSync
             if (Directory.Exists(dataPath)) try { Directory.Delete(dataPath, true); } catch { }
         }
 
-        // --- CORE LOGIC ---
+        // --- CORE LOGIC (UPDATED FOR NTFS) ---
 
         private List<UpdateInstruction> GenerateInstructions(List<FileEntry> mainFiles, List<FileEntry> offsiteFiles)
         {
@@ -280,13 +269,14 @@ namespace SneakerNetSync
             var matchedOffsitePaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             var unmatchedMainFiles = new List<FileEntry>();
 
-            // Pass 1: Exact Matches
             foreach (var main in mainFiles)
             {
                 if (offsitePathMap.TryGetValue(main.RelativePath, out var existing))
                 {
+                    // NTFS LOGIC: Exact match preferred. 
+                    // We allow 0.1s variance just for tick rounding issues during copy, but functionally this is "Exact".
                     bool isSame = (main.Size == existing.Size) &&
-                                  (Math.Abs((main.LastWriteTime - existing.LastWriteTime).TotalSeconds) < 2.1);
+                                  (Math.Abs((main.LastWriteTime - existing.LastWriteTime).TotalSeconds) < 0.1);
 
                     if (isSame) matchedOffsitePaths.Add(existing.RelativePath);
                     else unmatchedMainFiles.Add(main);
@@ -297,7 +287,6 @@ namespace SneakerNetSync
                 }
             }
 
-            // Pass 2: Moves
             var potentialMoveSources = offsiteFiles
                 .Where(x => !matchedOffsitePaths.Contains(x.RelativePath))
                 .GroupBy(x => x.Size)
@@ -308,7 +297,8 @@ namespace SneakerNetSync
                 FileEntry moveSource = null;
                 if (potentialMoveSources.TryGetValue(main.Size, out var candidates))
                 {
-                    var matchIndex = candidates.FindIndex(x => Math.Abs((x.LastWriteTime - main.LastWriteTime).TotalSeconds) < 2.1);
+                    // Stricter time check for moves too
+                    var matchIndex = candidates.FindIndex(x => Math.Abs((x.LastWriteTime - main.LastWriteTime).TotalSeconds) < 0.1);
                     if (matchIndex != -1)
                     {
                         moveSource = candidates[matchIndex];
@@ -323,7 +313,7 @@ namespace SneakerNetSync
                 }
                 else
                 {
-                    // Handle Overwrite cleanup
+                    // Handle Overwrite logic: Consume the old file if it exists so it doesn't get marked as DELETE
                     if (offsitePathMap.TryGetValue(main.RelativePath, out var oldVersion) && !matchedOffsitePaths.Contains(main.RelativePath))
                     {
                         if (potentialMoveSources.TryGetValue(oldVersion.Size, out var oldCandidates))
@@ -341,7 +331,6 @@ namespace SneakerNetSync
                 }
             }
 
-            // Pass 3: Deletes
             foreach (var kvp in potentialMoveSources)
             {
                 foreach (var item in kvp.Value)
@@ -358,21 +347,20 @@ namespace SneakerNetSync
             var results = new List<FileEntry>();
             if (!Directory.Exists(root)) return results;
 
-            // Compile regexes for exclusions
             var excludeRegexes = new List<Regex>();
             if (exclusions != null)
             {
                 foreach (var pattern in exclusions)
                 {
                     if (string.IsNullOrWhiteSpace(pattern)) continue;
-                    // Simple glob to regex
-                    string regexPattern = "^" + Regex.Escape(pattern).Replace("\\*", ".*").Replace("\\?", ".") + "$";
-                    // If pattern has no path separators, match filename or directory name anywhere
+                    string regexPattern;
+                    // If no path separator, match file/folder name locally
                     if (!pattern.Contains(Path.DirectorySeparatorChar) && !pattern.Contains('/'))
-                    {
+                        regexPattern = "^" + Regex.Escape(pattern).Replace("\\*", ".*").Replace("\\?", ".") + "$";
+                    else
+                        // Determine if we need to anchor to root? For now, treated as relative pattern.
                         regexPattern = Regex.Escape(pattern).Replace("\\*", ".*").Replace("\\?", ".");
-                        // Match if the name (not full path) matches
-                    }
+
                     excludeRegexes.Add(new Regex(regexPattern, RegexOptions.IgnoreCase));
                 }
             }
@@ -383,7 +371,6 @@ namespace SneakerNetSync
             {
                 foreach (var f in Directory.EnumerateFiles(root, "*", opts))
                 {
-                    // Check Exclusions
                     string relPath = Path.GetRelativePath(root, f);
                     if (IsExcluded(relPath, excludeRegexes)) continue;
 
@@ -402,26 +389,33 @@ namespace SneakerNetSync
         private bool IsExcluded(string relPath, List<Regex> regexes)
         {
             if (regexes == null || regexes.Count == 0) return false;
-
             string name = Path.GetFileName(relPath);
-            // Check full path and filename against patterns
             foreach (var r in regexes)
             {
-                if (r.IsMatch(relPath) || r.IsMatch(name)) return true;
+                if (r.IsMatch(name)) return true; // Match filename
+                if (r.IsMatch(relPath)) return true; // Match path
 
-                // Specific check for directory exclusions (e.g., "bin")
+                // Match folder segments (e.g. exclude "bin" checks "Project/bin/Debug")
                 var parts = relPath.Split(Path.DirectorySeparatorChar);
-                foreach (var part in parts)
-                {
-                    if (r.IsMatch(part)) return true;
-                }
+                foreach (var part in parts) if (r.IsMatch(part)) return true;
             }
             return false;
         }
 
-        private List<FileEntry> LoadCatalog(string p) => File.Exists(p) ? JsonSerializer.Deserialize<List<FileEntry>>(File.ReadAllText(p)) : new List<FileEntry>();
-        private long GetFreeSpaceMb(string p) => new DriveInfo(Path.GetPathRoot(p)).AvailableFreeSpace / 1024 / 1024;
-        private string BytesToMb(long b) => (b / 1024.0 / 1024.0).ToString("0.00") + " MB";
-        private void CleanupEmptyDirs(string p) { try { foreach (var d in Directory.GetDirectories(p)) { CleanupEmptyDirs(d); if (!Directory.EnumerateFileSystemEntries(d).Any()) Directory.Delete(d); } } catch { } }
+        private static List<FileEntry> LoadCatalog(string p) => File.Exists(p) ? JsonSerializer.Deserialize<List<FileEntry>>(File.ReadAllText(p)) : new List<FileEntry>();
+        private static long GetFreeSpaceMb(string p) => new DriveInfo(Path.GetPathRoot(p)).AvailableFreeSpace / 1024 / 1024;
+        private static string BytesToMb(long b) => (b / 1024.0 / 1024.0).ToString("0.00") + " MB";
+        private static void CleanupEmptyDirs(string p)
+        {
+            try
+            {
+                foreach (var d in Directory.GetDirectories(p))
+                {
+                    CleanupEmptyDirs(d);
+                    if (!Directory.EnumerateFileSystemEntries(d).Any()) Directory.Delete(d);
+                }
+            }
+            catch { }
+        }
     }
 }
