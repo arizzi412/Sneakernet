@@ -4,7 +4,6 @@ using System.Drawing;
 using System.Linq;
 using System.Threading.Tasks;
 using System.Windows.Forms;
-using static System.Windows.Forms.VisualStyles.VisualStyleElement;
 using SneakerNetSync;
 
 namespace GUI
@@ -23,21 +22,8 @@ namespace GUI
             ApplySettingsToUi();
             SetupGrid();
 
-            // Add tooltips
-            var tip = new System.Windows.Forms.ToolTip();
-            tip.SetToolTip(btnHomeAnalyze, "Compare Main Drive against the USB Catalog.");
-            tip.SetToolTip(btnHomeExecute, "Copy new/changed files to the USB drive.");
-            tip.SetToolTip(btnOffsiteAnalyze, "Read the instructions file from the USB.");
-            tip.SetToolTip(btnOffsiteExecute, "Apply the changes (Moves, Deletes, Copies) to this computer.");
-
             // Hook up FormClosing to save settings
-            this.FormClosing += (s, e) => {
-                _settings.HomeMainPath = txtHomeMain.Text;
-                _settings.HomeUsbPath = txtHomeUsb.Text;
-                _settings.OffsiteTargetPath = txtOffsiteTarget.Text;
-                _settings.OffsiteUsbPath = txtOffsiteUsb.Text;
-                _settings.Save();
-            };
+            this.FormClosing += (s, e) => SaveSettingsFromUi();
         }
 
         private void ApplySettingsToUi()
@@ -46,6 +32,26 @@ namespace GUI
             txtHomeUsb.Text = _settings.HomeUsbPath;
             txtOffsiteTarget.Text = _settings.OffsiteTargetPath;
             txtOffsiteUsb.Text = _settings.OffsiteUsbPath;
+            txtExclusions.Text = string.Join(Environment.NewLine, _settings.ExclusionPatterns);
+        }
+
+        private void SaveSettingsFromUi()
+        {
+            _settings.HomeMainPath = txtHomeMain.Text;
+            _settings.HomeUsbPath = txtHomeUsb.Text;
+            _settings.OffsiteTargetPath = txtOffsiteTarget.Text;
+            _settings.OffsiteUsbPath = txtOffsiteUsb.Text;
+            _settings.ExclusionPatterns = txtExclusions.Lines
+                .Where(x => !string.IsNullOrWhiteSpace(x))
+                .Select(x => x.Trim())
+                .ToList();
+            _settings.Save();
+        }
+
+        private void btnSaveSettings_Click(object sender, EventArgs e)
+        {
+            SaveSettingsFromUi();
+            MessageBox.Show("Settings saved.", "SneakerNet", MessageBoxButtons.OK, MessageBoxIcon.Information);
         }
 
         private void SetupGrid()
@@ -75,12 +81,15 @@ namespace GUI
                 MessageBox.Show("Please select both Main and USB paths."); return;
             }
 
+            // Ensure settings are up to date with UI (for exclusions)
+            SaveSettingsFromUi();
+
             _pendingInstructions = null;
             BindGrid();
 
             await RunTask("Analysing drives... (This is fast)", reporter =>
             {
-                _pendingInstructions = _engine.AnalyzeForHome(txtHomeMain.Text, txtHomeUsb.Text, reporter);
+                _pendingInstructions = _engine.AnalyzeForHome(txtHomeMain.Text, txtHomeUsb.Text, _settings.ExclusionPatterns, reporter);
             });
 
             BindGrid();
@@ -175,7 +184,10 @@ namespace GUI
 
             if (MessageBox.Show("This will scan the Backup drive and create a fresh catalog on the USB.\nDo this if it's your first run or if things seem out of sync.\n\nContinue?", "Initialize", MessageBoxButtons.YesNo, MessageBoxIcon.Question) == DialogResult.Yes)
             {
-                await RunTask("Generating Catalog...", reporter => _engine.GenerateCatalog(txtOffsiteTarget.Text, txtOffsiteUsb.Text));
+                // Note: We don't apply exclusions here by default to ensure the catalog represents REALITY on the backup drive.
+                // However, you could pass _settings.ExclusionPatterns if you want the catalog to ignore files that shouldn't be there.
+                await RunTask("Generating Catalog...", reporter => _engine.GenerateCatalog(txtOffsiteTarget.Text, txtOffsiteUsb.Text, null));
+
                 lblStatus.Text = "Initialization Complete. USB is ready to go Home.";
                 MessageBox.Show("Catalog created successfully!", "Success", MessageBoxButtons.OK, MessageBoxIcon.Information);
             }

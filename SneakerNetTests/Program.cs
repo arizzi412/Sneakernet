@@ -76,7 +76,7 @@ namespace SneakerNetTests
             engine.GenerateCatalog(OffsitePath, UsbPath);
 
             // 3. Analyze at Home
-            var instructions = engine.AnalyzeForHome(MainPath, UsbPath, MockReport);
+            var instructions = engine.AnalyzeForHome(MainPath, UsbPath, [], MockReport);
 
             // Assert
             Assert(instructions.Count == 1, "Should have 1 instruction");
@@ -95,7 +95,7 @@ namespace SneakerNetTests
             engine.GenerateCatalog(OffsitePath, UsbPath);
 
             // 3. Analyze at Home (Main is empty)
-            var instructions = engine.AnalyzeForHome(MainPath, UsbPath, MockReport);
+            var instructions = engine.AnalyzeForHome(MainPath, UsbPath, [], MockReport);
 
             // Assert
             Assert(instructions.Count == 1, "Should have 1 instruction");
@@ -117,7 +117,7 @@ namespace SneakerNetTests
             engine.GenerateCatalog(OffsitePath, UsbPath);
 
             // 3. Analyze
-            var instructions = engine.AnalyzeForHome(MainPath, UsbPath, MockReport);
+            var instructions = engine.AnalyzeForHome(MainPath, UsbPath, [], MockReport);
 
             // Assert
             Assert(instructions.Count == 1, "Should have 1 instruction");
@@ -138,7 +138,7 @@ namespace SneakerNetTests
             File.SetLastWriteTime(MainPath + "\\Dog.jpg", time);
 
             engine.GenerateCatalog(OffsitePath, UsbPath);
-            var instructions = engine.AnalyzeForHome(MainPath, UsbPath, MockReport);
+            var instructions = engine.AnalyzeForHome(MainPath, UsbPath, [], MockReport);
 
             Assert(instructions.Count == 1, "Should be 1 instruction (Move)");
             Assert(instructions[0].Action == "MOVE", "Action should be MOVE");
@@ -162,7 +162,7 @@ namespace SneakerNetTests
             File.SetLastWriteTime(Path.Combine(MainPath, "Archive", "img.jpg"), t);
 
             engine.GenerateCatalog(OffsitePath, UsbPath);
-            var instructions = engine.AnalyzeForHome(MainPath, UsbPath, MockReport);
+            var instructions = engine.AnalyzeForHome(MainPath, UsbPath, [], MockReport);
 
             Assert(instructions[0].Action == "MOVE", "Should detect MOVE across folders");
             // Note: Path separators might differ on OS, checking endsWith
@@ -197,7 +197,7 @@ namespace SneakerNetTests
             File.SetLastWriteTime(MainPath + "\\A.txt", time2); // B -> A (Carries Time2)
 
             engine.GenerateCatalog(OffsitePath, UsbPath);
-            var instructions = engine.AnalyzeForHome(MainPath, UsbPath, MockReport);
+            var instructions = engine.AnalyzeForHome(MainPath, UsbPath, [], MockReport);
 
             // Now we expect 2 moves
             Assert(instructions.Count == 2, $"Should have 2 instructions, got {instructions.Count}");
@@ -237,7 +237,7 @@ namespace SneakerNetTests
             engine.GenerateCatalog(OffsitePath, UsbPath);
 
             // Analyze
-            var instructions = engine.AnalyzeForHome(MainPath, UsbPath, MockReport);
+            var instructions = engine.AnalyzeForHome(MainPath, UsbPath, [], MockReport);
             Assert(instructions.Count == 2, "Should want to copy A and B");
 
             // EXECUTE HOME TRANSFER (Simulate normal copy)
@@ -258,7 +258,7 @@ namespace SneakerNetTests
 
             // NEXT TRIP: ANALYZE HOME AGAIN
             // The system should realize B is missing and ask for it again
-            var nextInstructions = engine.AnalyzeForHome(MainPath, UsbPath, MockReport);
+            var nextInstructions = engine.AnalyzeForHome(MainPath, UsbPath, [], MockReport);
 
             Assert(nextInstructions.Any(x => x.Source == "FileB.txt" && x.Action == "COPY"),
                 "System should queue File B for copy again");
@@ -299,7 +299,7 @@ namespace SneakerNetTests
             File.SetLastWriteTime(MainPath + "\\A.txt", t3); // C->A
 
             engine.GenerateCatalog(OffsitePath, UsbPath);
-            var instructions = engine.AnalyzeForHome(MainPath, UsbPath, MockReport);
+            var instructions = engine.AnalyzeForHome(MainPath, UsbPath, [], MockReport);
 
             Assert(instructions.Count == 3, "Should be 3 moves");
             Assert(instructions.All(i => i.Action == "MOVE"), "All should be MOVE");
@@ -330,7 +330,7 @@ namespace SneakerNetTests
 
             // Init
             engine.GenerateCatalog(OffsitePath, UsbPath);
-            var instructions = engine.AnalyzeForHome(MainPath, UsbPath, MockReport);
+            var instructions = engine.AnalyzeForHome(MainPath, UsbPath, [], MockReport);
 
             // Expect: Delete "MyStuff/inside.txt" and Copy "MyStuff"
             engine.ExecuteHomeTransfer(MainPath, UsbPath, instructions, MockReport);
@@ -349,7 +349,7 @@ namespace SneakerNetTests
             CreateFile(MainPath, "Zero.bin", ""); // Empty content
             engine.GenerateCatalog(OffsitePath, UsbPath);
 
-            var instructions = engine.AnalyzeForHome(MainPath, UsbPath, MockReport);
+            var instructions = engine.AnalyzeForHome(MainPath, UsbPath, [], MockReport);
 
             Assert(instructions.Count == 1, "Should detect new 0-byte file");
 

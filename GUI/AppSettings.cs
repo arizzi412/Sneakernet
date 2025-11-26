@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Text.Json;
 
@@ -10,6 +11,19 @@ namespace SneakerNetSync
         public string HomeUsbPath { get; set; } = "";
         public string OffsiteTargetPath { get; set; } = "";
         public string OffsiteUsbPath { get; set; } = "";
+
+        // NEW: List of exclusion patterns
+        public List<string> ExclusionPatterns { get; set; } = new List<string>
+        {
+            "System Volume Information",
+            "$RECYCLE.BIN",
+            "*.tmp",
+            "Thumbs.db",
+            ".git",
+            "bin",
+            "obj",
+            ".vs"
+        };
 
         private static string FilePath => Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "settings.json");
 

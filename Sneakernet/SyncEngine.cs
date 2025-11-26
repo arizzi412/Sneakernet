@@ -1,4 +1,9 @@
-﻿using System.Text.Json;
+﻿using System;
+using System.Collections.Generic;
+using System.IO;
+using System.Linq;
+using System.Text.Json;
+using System.Text.RegularExpressions;
 
 namespace SneakerNetSync
 {
@@ -13,7 +18,7 @@ namespace SneakerNetSync
 
         // --- PHASE 1: ANALYSIS ---
 
-        public List<UpdateInstruction> AnalyzeForHome(string mainPath, string usbPath, ProgressReporter report)
+        public List<UpdateInstruction> AnalyzeForHome(string mainPath, string usbPath, List<string> exclusions, ProgressReporter report)
         {
             if (!Directory.Exists(mainPath)) throw new DirectoryNotFoundException("Main drive path not found.");
             if (!Directory.Exists(usbPath)) throw new DirectoryNotFoundException("USB drive path not found.");
@@ -25,8 +30,8 @@ namespace SneakerNetSync
             report("Reading Offsite Catalog...", 10);
             var offsiteFiles = LoadCatalog(catalogPath);
 
-            report("Scanning Main Drive...", 30);
-            var mainFiles = ScanDrive(mainPath, offsiteFiles);
+            report("Scanning Main Drive (applying exclusions)...", 30);
+            var mainFiles = ScanDrive(mainPath, exclusions);
 
             report("Calculating Changes...", 80);
             var instructions = GenerateInstructions(mainFiles, offsiteFiles);
@@ -40,7 +45,7 @@ namespace SneakerNetSync
             if (!Directory.Exists(usbPath)) throw new DirectoryNotFoundException("USB drive path not found.");
 
             string instrPath = Path.Combine(usbPath, INSTRUCTIONS_FILENAME);
-            if (!File.Exists(instrPath)) return new List<UpdateInstruction>(); // Return empty if no instructions
+            if (!File.Exists(instrPath)) return new List<UpdateInstruction>();
 
             return JsonSerializer.Deserialize<List<UpdateInstruction>>(File.ReadAllText(instrPath));
         }
@@ -63,10 +68,12 @@ namespace SneakerNetSync
             foreach (var copy in copies)
             {
                 current++;
-                int pct = (int)((current / (float)total) * 100);
+                int pct = total > 0 ? (int)((current / (float)total) * 100) : 0;
 
                 if (usbFull)
                 {
+                    // If USB is full, we skip copying, but we also DO NOT add the instruction to the USB.
+                    // The instruction will be regenerated next time we analyze at home.
                     report($"Skipped (USB Full): {copy.Source}", pct);
                     continue;
                 }
@@ -82,6 +89,13 @@ namespace SneakerNetSync
                 {
                     string src = Path.Combine(mainPath, copy.Source);
                     string dest = Path.Combine(usbDataRoot, copy.Source);
+
+                    // Ensure source still exists (it might have been deleted while app was open)
+                    if (!File.Exists(src))
+                    {
+                        report($"Skipped (Missing): {copy.Source}", pct);
+                        continue;
+                    }
 
                     Directory.CreateDirectory(Path.GetDirectoryName(dest));
                     File.Copy(src, dest, true);
@@ -104,14 +118,11 @@ namespace SneakerNetSync
             return result;
         }
 
-        // Inside SyncEngine.cs
-
         public SyncResult ExecuteOffsiteUpdate(string offsitePath, string usbPath, List<UpdateInstruction> instructions, ProgressReporter report)
         {
             var result = new SyncResult();
             string usbDataRoot = Path.Combine(usbPath, DATA_FOLDER_NAME);
 
-            // Separate instructions by type
             var moves = instructions.Where(i => i.Action == "MOVE").ToList();
             var deletes = instructions.Where(i => i.Action == "DELETE").ToList();
             var copies = instructions.Where(i => i.Action == "COPY").ToList();
@@ -119,11 +130,8 @@ namespace SneakerNetSync
             int total = instructions.Count;
             int current = 0;
 
-            // ---------------------------------------------------------
-            // STEP 1: SAFE MOVE STAGING (Resolve Swaps)
-            // Rename all move sources to temporary names first.
-            // ---------------------------------------------------------
-            var tempMoveMap = new Dictionary<UpdateInstruction, string>(); // Maps instruction -> TempFilePath
+            // 1. STAGE MOVES (Resolve Swaps)
+            var tempMoveMap = new Dictionary<UpdateInstruction, string>();
 
             foreach (var move in moves)
             {
@@ -132,12 +140,10 @@ namespace SneakerNetSync
                 {
                     try
                     {
-                        // Create a unique temp filename in the SAME folder (to ensure atomic move within same volume)
                         string tempName = $"{move.Source}.{Guid.NewGuid()}.sneakertemp";
                         string tempAbs = Path.Combine(offsitePath, tempName);
-
                         File.Move(sourceAbs, tempAbs);
-                        tempMoveMap[move] = tempAbs; // Remember where we put it
+                        tempMoveMap[move] = tempAbs;
                     }
                     catch (Exception ex)
                     {
@@ -145,19 +151,13 @@ namespace SneakerNetSync
                         report($"Error Staging Move {move.Source}: {ex.Message}", 0);
                     }
                 }
-                else
-                {
-                    report($"Warning: Move Source Missing {move.Source}", 0);
-                }
             }
 
-            // ---------------------------------------------------------
-            // STEP 2: DELETES
-            // ---------------------------------------------------------
+            // 2. DELETES
             foreach (var del in deletes)
             {
                 current++;
-                int pct = (int)((current / (float)total) * 100);
+                int pct = total > 0 ? (int)((current / (float)total) * 100) : 0;
                 string path = Path.Combine(offsitePath, del.Source);
 
                 try
@@ -176,29 +176,22 @@ namespace SneakerNetSync
                 }
             }
 
-            // --- CRITICAL FIX: CLEANUP DIRS BEFORE COPY/MOVE ---
-            // This removes empty folders so they don't block new files with the same name.
             report("Cleaning empty directories...", 0);
             CleanupEmptyDirs(offsitePath);
-            // ---------------------------------------------------------
-            // STEP 3: FINALIZE MOVES (Temp -> Destination)
-            // ---------------------------------------------------------
+
+            // 3. FINISH MOVES
             foreach (var move in moves)
             {
                 current++;
-                int pct = (int)((current / (float)total) * 100);
+                int pct = total > 0 ? (int)((current / (float)total) * 100) : 0;
 
-                // Did we successfully stage this file?
                 if (tempMoveMap.TryGetValue(move, out string tempPath) && File.Exists(tempPath))
                 {
                     string destAbs = Path.Combine(offsitePath, move.Destination);
                     try
                     {
                         Directory.CreateDirectory(Path.GetDirectoryName(destAbs));
-
-                        // If destination exists now (rare, but possible if user has dupes), delete it
                         if (File.Exists(destAbs)) File.Delete(destAbs);
-
                         File.Move(tempPath, destAbs);
                         result.FilesMoved++;
                         report($"Moved: {move.Source} -> {move.Destination}", pct);
@@ -207,8 +200,7 @@ namespace SneakerNetSync
                     {
                         result.Errors++;
                         report($"Error Finishing Move {move.Source}: {ex.Message}", pct);
-
-                        // Attempt to restore file to original name if possible
+                        // Try restore
                         try
                         {
                             string originalAbs = Path.Combine(offsitePath, move.Source);
@@ -219,31 +211,22 @@ namespace SneakerNetSync
                 }
             }
 
-            // ---------------------------------------------------------
-            // STEP 4: COPIES (New Files from USB)
-            // ---------------------------------------------------------
+            // 4. COPIES
             foreach (var copy in copies)
             {
                 current++;
-                int pct = (int)((current / (float)total) * 100);
+                int pct = total > 0 ? (int)((current / (float)total) * 100) : 0;
 
-                string destAbs = Path.Combine(offsitePath, copy.Source); // Destination is same as Source path relative to root
+                string destAbs = Path.Combine(offsitePath, copy.Source);
                 string usbSrc = Path.Combine(usbDataRoot, copy.Source);
 
                 try
                 {
                     if (File.Exists(usbSrc))
                     {
-                        // 1. Handle "File Replacing Folder" Collision
-                        // If a folder exists where this file needs to go, nuke the folder.
-                        if (Directory.Exists(destAbs))
-                        {
-                            // Recursive delete in case untracked files are inside
-                            Directory.Delete(destAbs, true);
-                        }
-
+                        if (Directory.Exists(destAbs)) Directory.Delete(destAbs, true);
                         Directory.CreateDirectory(Path.GetDirectoryName(destAbs));
-                        File.Copy(usbSrc, destAbs, true); // Overwrite allowed here
+                        File.Copy(usbSrc, destAbs, true);
                         result.FilesCopied++;
                         result.BytesTransferred += copy.RawSizeBytes;
                         report($"Updated: {copy.Source}", pct);
@@ -260,94 +243,69 @@ namespace SneakerNetSync
                 }
             }
 
-            // Cleanup
             CleanupEmptyDirs(offsitePath);
             try { File.Delete(Path.Combine(usbPath, INSTRUCTIONS_FILENAME)); } catch { }
             try { if (Directory.Exists(usbDataRoot)) Directory.Delete(usbDataRoot, true); } catch { }
 
             report("Generating new catalog...", 100);
-            GenerateCatalog(offsitePath, usbPath);
+            // Pass null for exclusions here? No, ideally we want the catalog to match our exclusion rules
+            // However, we don't have the exclusions list from Home available here easily. 
+            // Usually, Offsite doesn't need to filter, but if we want to be safe, pass an empty list 
+            // OR save exclusions to the USB. For simplicity, we scan everything at Offsite.
+            // If the Home side excludes it, it will simply be marked as DELETE next time.
+            GenerateCatalog(offsitePath, usbPath, null);
 
             return result;
         }
 
-        public void GenerateCatalog(string drivePath, string usbPath)
+        public void GenerateCatalog(string drivePath, string usbPath, List<string> exclusions = null)
         {
-            // 1. Scan and Save Catalog
-            var files = ScanDrive(drivePath, null);
+            var files = ScanDrive(drivePath, exclusions);
             string json = JsonSerializer.Serialize(files, new JsonSerializerOptions { WriteIndented = true });
             File.WriteAllText(Path.Combine(usbPath, CATALOG_FILENAME), json);
 
-            // 2. SAFETY: Delete the instructions file.
-            // Since we just defined the "Fresh State", any old pending instructions 
-            // are now obsolete and dangerous. Nuke them.
             string instrPath = Path.Combine(usbPath, INSTRUCTIONS_FILENAME);
-            if (File.Exists(instrPath))
-            {
-                try { File.Delete(instrPath); } catch { }
-            }
+            if (File.Exists(instrPath)) try { File.Delete(instrPath); } catch { }
 
-            // 3. CLEANUP: Also delete the Data folder on USB if it exists.
-            // If we are re-indexing, we shouldn't have loose data waiting to be copied.
             string dataPath = Path.Combine(usbPath, DATA_FOLDER_NAME);
-            if (Directory.Exists(dataPath))
-            {
-                try { Directory.Delete(dataPath, true); } catch { }
-            }
+            if (Directory.Exists(dataPath)) try { Directory.Delete(dataPath, true); } catch { }
         }
 
-        // --- OPTIMIZED CORE LOGIC (DICT/HASHSET) ---
+        // --- CORE LOGIC ---
 
         private List<UpdateInstruction> GenerateInstructions(List<FileEntry> mainFiles, List<FileEntry> offsiteFiles)
         {
             var instructions = new List<UpdateInstruction>();
-
-            // 1. Index Offsite files
             var offsitePathMap = offsiteFiles.ToDictionary(x => x.RelativePath, x => x, StringComparer.OrdinalIgnoreCase);
             var matchedOffsitePaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             var unmatchedMainFiles = new List<FileEntry>();
 
-            // 2. PASS 1: Check for Exact Matches
+            // Pass 1: Exact Matches
             foreach (var main in mainFiles)
             {
                 if (offsitePathMap.TryGetValue(main.RelativePath, out var existing))
                 {
-                    // Allow 2.1s tolerance for FAT32
                     bool isSame = (main.Size == existing.Size) &&
                                   (Math.Abs((main.LastWriteTime - existing.LastWriteTime).TotalSeconds) < 2.1);
 
-                    if (isSame)
-                    {
-                        // Exact Match: Synced.
-                        matchedOffsitePaths.Add(existing.RelativePath);
-                    }
-                    else
-                    {
-                        // Mismatch!
-                        // CRITICAL CHANGE: Do NOT auto-queue COPY yet. 
-                        // Treat as Unmatched. This allows "Swap" logic to see if 'main' came from another file.
-                        unmatchedMainFiles.Add(main);
-                    }
+                    if (isSame) matchedOffsitePaths.Add(existing.RelativePath);
+                    else unmatchedMainFiles.Add(main);
                 }
                 else
                 {
-                    // New File
                     unmatchedMainFiles.Add(main);
                 }
             }
 
-            // 3. Index potential Move Sources (Offsite files not exactly matched yet)
+            // Pass 2: Moves
             var potentialMoveSources = offsiteFiles
                 .Where(x => !matchedOffsitePaths.Contains(x.RelativePath))
                 .GroupBy(x => x.Size)
                 .ToDictionary(g => g.Key, g => g.ToList());
 
-            // 4. PASS 2: Detect Moves vs Copies vs Overwrites
             foreach (var main in unmatchedMainFiles)
             {
                 FileEntry moveSource = null;
-
-                // Try to find a Move Source (Same Size + Time)
                 if (potentialMoveSources.TryGetValue(main.Size, out var candidates))
                 {
                     var matchIndex = candidates.FindIndex(x => Math.Abs((x.LastWriteTime - main.LastWriteTime).TotalSeconds) < 2.1);
@@ -361,29 +319,13 @@ namespace SneakerNetSync
 
                 if (moveSource != null)
                 {
-                    // It is a MOVE
-                    instructions.Add(new UpdateInstruction
-                    {
-                        Action = "MOVE",
-                        Source = moveSource.RelativePath,
-                        Destination = main.RelativePath,
-                        SizeInfo = "-"
-                    });
+                    instructions.Add(new UpdateInstruction { Action = "MOVE", Source = moveSource.RelativePath, Destination = main.RelativePath, SizeInfo = "-" });
                 }
                 else
                 {
-                    // It is NOT a Move. It is either NEW or an OVERWRITE.
-                    // Check if it's an overwrite (did the old file exist at this path?)
-                    // We reuse offsitePathMap to check the original location.
-                    if (offsitePathMap.TryGetValue(main.RelativePath, out var oldVersion) &&
-                        !matchedOffsitePaths.Contains(main.RelativePath))
+                    // Handle Overwrite cleanup
+                    if (offsitePathMap.TryGetValue(main.RelativePath, out var oldVersion) && !matchedOffsitePaths.Contains(main.RelativePath))
                     {
-                        // It's an in-place edit (Overwrite).
-                        // To keep logic clean, we handle this as "COPY".
-                        // We must also manually "consume" the old file so it doesn't get marked as DELETE later.
-
-                        // Remove the old version from the "Deletes" pool (potentialMoveSources)
-                        // We have to hunt for it because potentialMoveSources is grouped by Size
                         if (potentialMoveSources.TryGetValue(oldVersion.Size, out var oldCandidates))
                         {
                             var selfRef = oldCandidates.FirstOrDefault(x => x.RelativePath == oldVersion.RelativePath);
@@ -395,53 +337,86 @@ namespace SneakerNetSync
                         }
                     }
 
-                    // Queue the Copy
-                    instructions.Add(new UpdateInstruction
-                    {
-                        Action = "COPY",
-                        Source = main.RelativePath,
-                        Destination = main.RelativePath,
-                        RawSizeBytes = main.Size,
-                        SizeInfo = BytesToMb(main.Size)
-                    });
+                    instructions.Add(new UpdateInstruction { Action = "COPY", Source = main.RelativePath, Destination = main.RelativePath, RawSizeBytes = main.Size, SizeInfo = BytesToMb(main.Size) });
                 }
             }
 
-            // 5. PASS 3: Detect Deletes
+            // Pass 3: Deletes
             foreach (var kvp in potentialMoveSources)
             {
                 foreach (var item in kvp.Value)
                 {
-                    instructions.Add(new UpdateInstruction
-                    {
-                        Action = "DELETE",
-                        Source = item.RelativePath,
-                        SizeInfo = "-"
-                    });
+                    instructions.Add(new UpdateInstruction { Action = "DELETE", Source = item.RelativePath, SizeInfo = "-" });
                 }
             }
 
             return instructions;
         }
 
-        private List<FileEntry> ScanDrive(string root, List<FileEntry> prev)
+        private List<FileEntry> ScanDrive(string root, List<string> exclusions)
         {
             var results = new List<FileEntry>();
+            if (!Directory.Exists(root)) return results;
+
+            // Compile regexes for exclusions
+            var excludeRegexes = new List<Regex>();
+            if (exclusions != null)
+            {
+                foreach (var pattern in exclusions)
+                {
+                    if (string.IsNullOrWhiteSpace(pattern)) continue;
+                    // Simple glob to regex
+                    string regexPattern = "^" + Regex.Escape(pattern).Replace("\\*", ".*").Replace("\\?", ".") + "$";
+                    // If pattern has no path separators, match filename or directory name anywhere
+                    if (!pattern.Contains(Path.DirectorySeparatorChar) && !pattern.Contains('/'))
+                    {
+                        regexPattern = Regex.Escape(pattern).Replace("\\*", ".*").Replace("\\?", ".");
+                        // Match if the name (not full path) matches
+                    }
+                    excludeRegexes.Add(new Regex(regexPattern, RegexOptions.IgnoreCase));
+                }
+            }
+
             var opts = new EnumerationOptions { RecurseSubdirectories = true, IgnoreInaccessible = true, AttributesToSkip = FileAttributes.System | FileAttributes.ReparsePoint };
+
             try
             {
                 foreach (var f in Directory.EnumerateFiles(root, "*", opts))
                 {
+                    // Check Exclusions
+                    string relPath = Path.GetRelativePath(root, f);
+                    if (IsExcluded(relPath, excludeRegexes)) continue;
+
                     try
                     {
                         var info = new FileInfo(f);
-                        results.Add(new FileEntry { RelativePath = Path.GetRelativePath(root, f), Size = info.Length, LastWriteTime = info.LastWriteTimeUtc });
+                        results.Add(new FileEntry { RelativePath = relPath, Size = info.Length, LastWriteTime = info.LastWriteTimeUtc });
                     }
                     catch { }
                 }
             }
             catch { }
             return results;
+        }
+
+        private bool IsExcluded(string relPath, List<Regex> regexes)
+        {
+            if (regexes == null || regexes.Count == 0) return false;
+
+            string name = Path.GetFileName(relPath);
+            // Check full path and filename against patterns
+            foreach (var r in regexes)
+            {
+                if (r.IsMatch(relPath) || r.IsMatch(name)) return true;
+
+                // Specific check for directory exclusions (e.g., "bin")
+                var parts = relPath.Split(Path.DirectorySeparatorChar);
+                foreach (var part in parts)
+                {
+                    if (r.IsMatch(part)) return true;
+                }
+            }
+            return false;
         }
 
         private List<FileEntry> LoadCatalog(string p) => File.Exists(p) ? JsonSerializer.Deserialize<List<FileEntry>>(File.ReadAllText(p)) : new List<FileEntry>();
