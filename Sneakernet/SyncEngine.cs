@@ -53,7 +53,14 @@ namespace SneakerNetSync
             string instrPath = Path.Combine(usbPath, INSTRUCTIONS_FILENAME);
             if (!File.Exists(instrPath)) return new List<UpdateInstruction>();
 
-            return JsonSerializer.Deserialize<List<UpdateInstruction>>(File.ReadAllText(instrPath));
+            try
+            {
+                return JsonSerializer.Deserialize<List<UpdateInstruction>>(File.ReadAllText(instrPath)) ?? new List<UpdateInstruction>();
+            }
+            catch
+            {
+                return new List<UpdateInstruction>();
+            }
         }
 
         // --- PHASE 2: EXECUTION ---
@@ -273,20 +280,25 @@ namespace SneakerNetSync
         private List<UpdateInstruction> GenerateInstructions(List<FileEntry> mainFiles, List<FileEntry> offsiteFiles)
         {
             var instructions = new List<UpdateInstruction>();
+            // Lookup for exact offsite paths
             var offsitePathMap = offsiteFiles.ToDictionary(x => x.RelativePath, x => x, StringComparer.OrdinalIgnoreCase);
+
+            // Track which offsite files are perfectly matched (and thus "claimed")
             var matchedOffsitePaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             var unmatchedMainFiles = new List<FileEntry>();
 
+            // 1. Identify Exact Matches (Update detection - same path, same content)
             foreach (var main in mainFiles)
             {
                 if (offsitePathMap.TryGetValue(main.RelativePath, out var existing))
                 {
+                    // Strict equality check: Size must match, Time must be very close
                     bool isSame = (main.Size == existing.Size) &&
                                   (Math.Abs((main.LastWriteTime - existing.LastWriteTime).TotalSeconds) < 0.1);
 
                     if (isSame)
                     {
-                        // Check for Case-Only Rename
+                        // Content matches. Check for Case-Only Rename.
                         if (!string.Equals(main.RelativePath, existing.RelativePath, StringComparison.Ordinal))
                         {
                             instructions.Add(new UpdateInstruction { Action = "MOVE", Source = existing.RelativePath, Destination = main.RelativePath, SizeInfo = "-" });
@@ -295,58 +307,87 @@ namespace SneakerNetSync
                     }
                     else
                     {
+                        // Same path, but content changed (Update)
                         unmatchedMainFiles.Add(main);
                     }
                 }
                 else
                 {
+                    // New file locally
                     unmatchedMainFiles.Add(main);
                 }
             }
 
-            var potentialMoveSources = offsiteFiles
+            // 2. Prepare Potential Move Sources
+            // Any offsite file NOT matched by path/content is a candidate to be moved or deleted.
+            var moveSourceMap = offsiteFiles
                 .Where(x => !matchedOffsitePaths.Contains(x.RelativePath))
-                .GroupBy(x => x.Size)
+                .GroupBy(x => x.Size) // Group by size for efficiency
                 .ToDictionary(g => g.Key, g => g.ToList());
+
+            // 3. PASS 1: Detect Moves
+            // We prioritize Moves over Copies. If a file exists elsewhere with same metadata, it's a move.
+            var handledMainFiles = new HashSet<FileEntry>();
 
             foreach (var main in unmatchedMainFiles)
             {
-                FileEntry moveSource = null;
-                if (potentialMoveSources.TryGetValue(main.Size, out var candidates))
+                if (moveSourceMap.TryGetValue(main.Size, out var candidates))
                 {
+                    // Find candidate with matching timestamp
                     var matchIndex = candidates.FindIndex(x => Math.Abs((x.LastWriteTime - main.LastWriteTime).TotalSeconds) < 0.1);
                     if (matchIndex != -1)
                     {
-                        moveSource = candidates[matchIndex];
+                        var source = candidates[matchIndex];
+
+                        // Create MOVE instruction
+                        instructions.Add(new UpdateInstruction { Action = "MOVE", Source = source.RelativePath, Destination = main.RelativePath, SizeInfo = "-" });
+
+                        // Mark Main file as handled
+                        handledMainFiles.Add(main);
+
+                        // Remove from candidates (Source is "consumed")
                         candidates.RemoveAt(matchIndex);
-                        if (candidates.Count == 0) potentialMoveSources.Remove(main.Size);
+                        if (candidates.Count == 0) moveSourceMap.Remove(main.Size);
                     }
-                }
-
-                if (moveSource != null)
-                {
-                    instructions.Add(new UpdateInstruction { Action = "MOVE", Source = moveSource.RelativePath, Destination = main.RelativePath, SizeInfo = "-" });
-                }
-                else
-                {
-                    if (offsitePathMap.TryGetValue(main.RelativePath, out var oldVersion) && !matchedOffsitePaths.Contains(main.RelativePath))
-                    {
-                        if (potentialMoveSources.TryGetValue(oldVersion.Size, out var oldCandidates))
-                        {
-                            var selfRef = oldCandidates.FirstOrDefault(x => x.RelativePath == oldVersion.RelativePath);
-                            if (selfRef != null)
-                            {
-                                oldCandidates.Remove(selfRef);
-                                if (oldCandidates.Count == 0) potentialMoveSources.Remove(oldVersion.Size);
-                            }
-                        }
-                    }
-
-                    instructions.Add(new UpdateInstruction { Action = "COPY", Source = main.RelativePath, Destination = main.RelativePath, RawSizeBytes = main.Size, SizeInfo = BytesToMb(main.Size) });
                 }
             }
 
-            foreach (var kvp in potentialMoveSources)
+            // 4. PASS 2: Generate Copies (Updates & New Files)
+            foreach (var main in unmatchedMainFiles)
+            {
+                if (handledMainFiles.Contains(main)) continue;
+
+                instructions.Add(new UpdateInstruction
+                {
+                    Action = "COPY",
+                    Source = main.RelativePath,
+                    Destination = main.RelativePath,
+                    RawSizeBytes = main.Size,
+                    SizeInfo = BytesToMb(main.Size)
+                });
+
+                // Prevent implicit Delete of the file we are overwriting.
+                // If we are doing a COPY (Update) of 'A.txt', and 'A.txt' exists offsite but wasn't moved,
+                // then 'A.txt' (Offsite) is effectively replaced. We should remove it from moveSourceMap
+                // so we don't generate a "DELETE A.txt" instruction later.
+                if (offsitePathMap.TryGetValue(main.RelativePath, out var oldVersion))
+                {
+                    if (moveSourceMap.TryGetValue(oldVersion.Size, out var candidates))
+                    {
+                        // Find and remove the exact old version from candidates
+                        var selfRef = candidates.FirstOrDefault(x => x.RelativePath == oldVersion.RelativePath);
+                        if (selfRef != null)
+                        {
+                            candidates.Remove(selfRef);
+                            if (candidates.Count == 0) moveSourceMap.Remove(oldVersion.Size);
+                        }
+                    }
+                }
+            }
+
+            // 5. Generate Deletes
+            // Any offsite file still in moveSourceMap was neither matched, moved, nor updated.
+            foreach (var kvp in moveSourceMap)
             {
                 foreach (var item in kvp.Value)
                 {
@@ -438,7 +479,17 @@ namespace SneakerNetSync
             return false;
         }
 
-        private List<FileEntry> LoadCatalog(string p) => File.Exists(p) ? JsonSerializer.Deserialize<List<FileEntry>>(File.ReadAllText(p)) : new List<FileEntry>();
+        private List<FileEntry> LoadCatalog(string p)
+        {
+            try
+            {
+                if (File.Exists(p))
+                    return JsonSerializer.Deserialize<List<FileEntry>>(File.ReadAllText(p));
+            }
+            catch { /* Ignore corruption and treat as empty */ }
+            return new List<FileEntry>();
+        }
+
         private long GetFreeSpaceMb(string p) => new DriveInfo(Path.GetPathRoot(p)).AvailableFreeSpace / 1024 / 1024;
         private string BytesToMb(long b) => (b / 1024.0 / 1024.0).ToString("0.00") + " MB";
         private void CleanupEmptyDirs(string p) { try { foreach (var d in Directory.GetDirectories(p)) { CleanupEmptyDirs(d); if (!Directory.EnumerateFileSystemEntries(d).Any()) Directory.Delete(d); } } catch { } }
