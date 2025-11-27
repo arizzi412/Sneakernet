@@ -243,7 +243,7 @@ namespace GUI
 
             if (MessageBox.Show("This will scan the Backup drive and create a fresh catalog on the USB.\nDo this if it's your first run or if things seem out of sync.\n\nContinue?", "Initialize", MessageBoxButtons.YesNo, MessageBoxIcon.Question) == DialogResult.Yes)
             {
-                await RunTask("Generating Catalog...", reporter => _engine.GenerateCatalog(txtOffsiteTarget.Text, txtOffsiteUsb.Text, null));
+                await RunTask("Generating Catalog...", reporter => _engine.GenerateCatalog(txtOffsiteTarget.Text, txtOffsiteUsb.Text));
                 lblStatus.Text = "Initialization Complete. USB is ready to go Home.";
                 MessageBox.Show("Catalog created successfully!", "Success", MessageBoxButtons.OK, MessageBoxIcon.Information);
             }

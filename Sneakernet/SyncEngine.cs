@@ -257,14 +257,14 @@ namespace SneakerNetSync
             try { if (Directory.Exists(usbDataRoot)) Directory.Delete(usbDataRoot, true); } catch { }
 
             report("Generating new catalog...", 100);
-            GenerateCatalog(offsitePath, usbPath, null);
+            GenerateCatalog(offsitePath, usbPath);
 
             return result;
         }
 
-        public void GenerateCatalog(string drivePath, string usbPath, List<string> exclusions)
+        public void GenerateCatalog(string drivePath, string usbPath)
         {
-            var files = ScanDrive(drivePath, exclusions);
+            var files = ScanDrive(drivePath);
             string json = JsonSerializer.Serialize(files, new JsonSerializerOptions { WriteIndented = true });
             File.WriteAllText(Path.Combine(usbPath, CATALOG_FILENAME), json);
 
@@ -398,7 +398,7 @@ namespace SneakerNetSync
             return instructions;
         }
 
-        private List<FileEntry> ScanDrive(string root, List<string> exclusions)
+        private List<FileEntry> ScanDrive(string root, List<string>? exclusions = null)
         {
             var results = new List<FileEntry>();
             if (!Directory.Exists(root)) return results;

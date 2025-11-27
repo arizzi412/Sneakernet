@@ -113,7 +113,7 @@ namespace SneakerNetTests
         static void Test_Base_Add()
         {
             var engine = GetEngine();
-            engine.GenerateCatalog(OffsitePath, UsbPath, null);
+            engine.GenerateCatalog(OffsitePath, UsbPath);
             CreateFile(MainPath, "new.txt", "content");
             var inst = engine.AnalyzeForHome(MainPath, UsbPath, null, MockReport);
             Assert(inst.Count == 1 && inst[0].Action == "COPY", "Should be COPY");
@@ -127,7 +127,7 @@ namespace SneakerNetTests
             CreateFile(MainPath, "del.txt", "data");
             CreateFile(OffsitePath, "del.txt", "data");
             SyncTimestamps("del.txt");
-            engine.GenerateCatalog(OffsitePath, UsbPath, null);
+            engine.GenerateCatalog(OffsitePath, UsbPath);
             File.Delete(Path.Combine(MainPath, "del.txt"));
             var inst = engine.AnalyzeForHome(MainPath, UsbPath, null, MockReport);
             Assert(inst[0].Action == "DELETE", "Should be DELETE");
@@ -138,7 +138,7 @@ namespace SneakerNetTests
             CreateFile(MainPath, "doc.txt", "v2");
             CreateFile(OffsitePath, "doc.txt", "v1");
             File.SetLastWriteTimeUtc(Path.Combine(MainPath, "doc.txt"), DateTime.UtcNow.AddMinutes(10));
-            engine.GenerateCatalog(OffsitePath, UsbPath, null);
+            engine.GenerateCatalog(OffsitePath, UsbPath);
             var inst = engine.AnalyzeForHome(MainPath, UsbPath, null, MockReport);
             Assert(inst[0].Action == "COPY", "Should be COPY");
         }
@@ -148,7 +148,7 @@ namespace SneakerNetTests
             CreateFile(MainPath, "file.txt", "data");
             CreateFile(OffsitePath, "file.txt", "data");
             SyncTimestamps("file.txt");
-            engine.GenerateCatalog(OffsitePath, UsbPath, null);
+            engine.GenerateCatalog(OffsitePath, UsbPath);
             Assert(engine.AnalyzeForHome(MainPath, UsbPath, null, MockReport).Count == 0, "Should be 0 instructions");
         }
         static void Test_Base_Recreate()
@@ -157,7 +157,7 @@ namespace SneakerNetTests
             CreateFile(OffsitePath, "data.txt", "old");
             CreateFile(MainPath, "data.txt", "new_longer");
             File.SetLastWriteTimeUtc(Path.Combine(MainPath, "data.txt"), DateTime.UtcNow.AddHours(1));
-            engine.GenerateCatalog(OffsitePath, UsbPath, null);
+            engine.GenerateCatalog(OffsitePath, UsbPath);
             var inst = engine.AnalyzeForHome(MainPath, UsbPath, null, MockReport);
             Assert(inst.Count == 1 && inst[0].Action == "COPY", "Should be COPY overwrite");
         }
@@ -168,7 +168,7 @@ namespace SneakerNetTests
             var engine = GetEngine();
             CreateFile(OffsitePath, "old.txt", "u"); CreateFile(MainPath, "new.txt", "u");
             SyncTimestampsTo(Path.Combine(MainPath, "new.txt"), Path.Combine(OffsitePath, "old.txt"));
-            engine.GenerateCatalog(OffsitePath, UsbPath, null);
+            engine.GenerateCatalog(OffsitePath, UsbPath);
             var inst = engine.AnalyzeForHome(MainPath, UsbPath, null, MockReport);
             Assert(inst.Count == 1 && inst[0].Action == "MOVE" && inst[0].Destination == "new.txt", "Move failed");
         }
@@ -177,7 +177,7 @@ namespace SneakerNetTests
             var engine = GetEngine();
             CreateFile(OffsitePath, "f.txt", "d"); Directory.CreateDirectory(Path.Combine(MainPath, "S")); CreateFile(Path.Combine(MainPath, "S"), "f.txt", "d");
             SyncTimestampsTo(Path.Combine(MainPath, "S", "f.txt"), Path.Combine(OffsitePath, "f.txt"));
-            engine.GenerateCatalog(OffsitePath, UsbPath, null);
+            engine.GenerateCatalog(OffsitePath, UsbPath);
             var inst = engine.AnalyzeForHome(MainPath, UsbPath, null, MockReport);
             Assert(inst[0].Action == "MOVE" && inst[0].Destination == Path.Combine("S", "f.txt"), "Subfolder move failed");
         }
@@ -186,7 +186,7 @@ namespace SneakerNetTests
             var engine = GetEngine();
             Directory.CreateDirectory(Path.Combine(OffsitePath, "S")); CreateFile(Path.Combine(OffsitePath, "S"), "f.txt", "d"); CreateFile(MainPath, "f.txt", "d");
             SyncTimestampsTo(Path.Combine(MainPath, "f.txt"), Path.Combine(OffsitePath, "S", "f.txt"));
-            engine.GenerateCatalog(OffsitePath, UsbPath, null);
+            engine.GenerateCatalog(OffsitePath, UsbPath);
             var inst = engine.AnalyzeForHome(MainPath, UsbPath, null, MockReport);
             Assert(inst[0].Action == "MOVE", "Parent move failed");
         }
@@ -195,7 +195,7 @@ namespace SneakerNetTests
             var engine = GetEngine();
             CreateFile(OffsitePath, "A.txt", "d"); CreateFile(MainPath, "C.txt", "d");
             SyncTimestampsTo(Path.Combine(MainPath, "C.txt"), Path.Combine(OffsitePath, "A.txt"));
-            engine.GenerateCatalog(OffsitePath, UsbPath, null);
+            engine.GenerateCatalog(OffsitePath, UsbPath);
             var inst = engine.AnalyzeForHome(MainPath, UsbPath, null, MockReport);
             Assert(inst[0].Action == "MOVE" && inst[0].Destination == "C.txt", "Chain move failed");
         }
@@ -217,7 +217,7 @@ namespace SneakerNetTests
             File.SetLastWriteTimeUtc(Path.Combine(OffsitePath, "B.txt"), t2);
             File.SetLastWriteTimeUtc(Path.Combine(MainPath, "A.txt"), t2);
 
-            engine.GenerateCatalog(OffsitePath, UsbPath, null);
+            engine.GenerateCatalog(OffsitePath, UsbPath);
             var inst = engine.AnalyzeForHome(MainPath, UsbPath, null, MockReport);
 
             Assert(inst.Count == 2 && inst.All(x => x.Action == "MOVE"), "Swap failed");
@@ -227,7 +227,7 @@ namespace SneakerNetTests
             var engine = GetEngine();
             CreateFile(OffsitePath, "a.txt", "d"); CreateFile(MainPath, "A.txt", "d");
             SyncTimestampsTo(Path.Combine(MainPath, "A.txt"), Path.Combine(OffsitePath, "a.txt"));
-            engine.GenerateCatalog(OffsitePath, UsbPath, null);
+            engine.GenerateCatalog(OffsitePath, UsbPath);
             var inst = engine.AnalyzeForHome(MainPath, UsbPath, null, MockReport);
             Assert(inst[0].Action == "MOVE", "Case move failed");
         }
@@ -237,7 +237,7 @@ namespace SneakerNetTests
             Directory.CreateDirectory(Path.Combine(OffsitePath, "O")); CreateFile(Path.Combine(OffsitePath, "O"), "f.txt", "d");
             Directory.CreateDirectory(Path.Combine(MainPath, "N")); CreateFile(Path.Combine(MainPath, "N"), "f.txt", "d");
             SyncTimestampsTo(Path.Combine(MainPath, "N", "f.txt"), Path.Combine(OffsitePath, "O", "f.txt"));
-            engine.GenerateCatalog(OffsitePath, UsbPath, null);
+            engine.GenerateCatalog(OffsitePath, UsbPath);
             Assert(engine.AnalyzeForHome(MainPath, UsbPath, null, MockReport)[0].Action == "MOVE", "Folder rename failed");
         }
 
@@ -248,7 +248,7 @@ namespace SneakerNetTests
             CreateFile(OffsitePath, "A.txt", "a");
             CreateFile(MainPath, "B.txt", "a"); CreateFile(MainPath, "A.txt", "new");
             SyncTimestampsTo(Path.Combine(MainPath, "B.txt"), Path.Combine(OffsitePath, "A.txt"));
-            engine.GenerateCatalog(OffsitePath, UsbPath, null);
+            engine.GenerateCatalog(OffsitePath, UsbPath);
             var inst = engine.AnalyzeForHome(MainPath, UsbPath, null, MockReport);
             Assert(inst.Any(x => x.Action == "MOVE" && x.Source == "A.txt"), "Move A->B missing");
             Assert(inst.Any(x => x.Action == "COPY" && x.Source == "A.txt"), "Copy new A missing");
@@ -259,7 +259,7 @@ namespace SneakerNetTests
             CreateFile(OffsitePath, "D", "file_D_content");
             Directory.CreateDirectory(Path.Combine(MainPath, "D"));
             CreateFile(Path.Combine(MainPath, "D"), "c.txt", "child_content");
-            engine.GenerateCatalog(OffsitePath, UsbPath, null);
+            engine.GenerateCatalog(OffsitePath, UsbPath);
             var inst = engine.AnalyzeForHome(MainPath, UsbPath, null, MockReport);
             Assert(inst.Any(x => x.Action == "DELETE" && x.Source == "D"), "Delete file D missing");
             Assert(inst.Any(x => x.Action == "COPY" && x.Source.Contains("c.txt")), "Copy child missing");
@@ -271,7 +271,7 @@ namespace SneakerNetTests
             CreateFile(Path.Combine(OffsitePath, "D"), "c.txt", "child_content");
             if (Directory.Exists(Path.Combine(MainPath, "D"))) Directory.Delete(Path.Combine(MainPath, "D"), true);
             CreateFile(MainPath, "D", "file_D_content_longer");
-            engine.GenerateCatalog(OffsitePath, UsbPath, null);
+            engine.GenerateCatalog(OffsitePath, UsbPath);
             var inst = engine.AnalyzeForHome(MainPath, UsbPath, null, MockReport);
             Assert(inst.Any(x => x.Action == "DELETE"), "Delete child missing");
             Assert(inst.Any(x => x.Action == "COPY" && x.Source == "D"), "Copy file D missing");
@@ -280,7 +280,7 @@ namespace SneakerNetTests
         {
             var engine = GetEngine();
             CreateFile(OffsitePath, "A.txt", "v1"); CreateFile(MainPath, "B.txt", "v1_edited_size_diff");
-            engine.GenerateCatalog(OffsitePath, UsbPath, null);
+            engine.GenerateCatalog(OffsitePath, UsbPath);
             var inst = engine.AnalyzeForHome(MainPath, UsbPath, null, MockReport);
             Assert(inst.Any(x => x.Action == "DELETE"), "Delete A missing");
             Assert(inst.Any(x => x.Action == "COPY"), "Copy B missing");
@@ -291,7 +291,7 @@ namespace SneakerNetTests
         static void Test_Exclude_FilePattern()
         {
             var engine = GetEngine();
-            engine.GenerateCatalog(OffsitePath, UsbPath, null);
+            engine.GenerateCatalog(OffsitePath, UsbPath);
             CreateFile(MainPath, "i.tmp", "x"); CreateFile(MainPath, "k.txt", "y");
             var inst = engine.AnalyzeForHome(MainPath, UsbPath, new List<string> { "*.tmp" }, MockReport);
             Assert(inst.Count == 1 && inst[0].Source == "k.txt", "Filter failed");
@@ -299,7 +299,7 @@ namespace SneakerNetTests
         static void Test_Exclude_FolderPattern()
         {
             var engine = GetEngine();
-            engine.GenerateCatalog(OffsitePath, UsbPath, null);
+            engine.GenerateCatalog(OffsitePath, UsbPath);
             Directory.CreateDirectory(Path.Combine(MainPath, "bin")); CreateFile(Path.Combine(MainPath, "bin"), "a.dll", "x");
             CreateFile(MainPath, "r.txt", "y");
             var inst = engine.AnalyzeForHome(MainPath, UsbPath, new List<string> { "bin\\" }, MockReport);
@@ -308,7 +308,7 @@ namespace SneakerNetTests
         static void Test_Exclude_CaseInsensitive()
         {
             var engine = GetEngine();
-            engine.GenerateCatalog(OffsitePath, UsbPath, null);
+            engine.GenerateCatalog(OffsitePath, UsbPath);
             CreateFile(MainPath, "I.LOG", "x");
             var inst = engine.AnalyzeForHome(MainPath, UsbPath, new List<string> { "*.log" }, MockReport);
             Assert(inst.Count == 0, "Case check failed");
@@ -317,14 +317,14 @@ namespace SneakerNetTests
         {
             var engine = GetEngine();
             CreateFile(OffsitePath, "L.txt", "d"); CreateFile(MainPath, "L.txt", "d"); SyncTimestamps("L.txt");
-            engine.GenerateCatalog(OffsitePath, UsbPath, null);
+            engine.GenerateCatalog(OffsitePath, UsbPath);
             var inst = engine.AnalyzeForHome(MainPath, UsbPath, new List<string> { "*.txt" }, MockReport);
             Assert(inst.Count == 1 && inst[0].Action == "DELETE", "Retroactive delete failed");
         }
         static void Test_Exclude_Anchoring()
         {
             var engine = GetEngine();
-            engine.GenerateCatalog(OffsitePath, UsbPath, null);
+            engine.GenerateCatalog(OffsitePath, UsbPath);
             Directory.CreateDirectory(Path.Combine(MainPath, "temp")); CreateFile(Path.Combine(MainPath, "temp"), "j.txt", "x");
             Directory.CreateDirectory(Path.Combine(MainPath, "temporary")); CreateFile(Path.Combine(MainPath, "temporary"), "k.txt", "x");
             var inst = engine.AnalyzeForHome(MainPath, UsbPath, new List<string> { "temp\\" }, MockReport);
@@ -334,7 +334,7 @@ namespace SneakerNetTests
         static void Test_Exclude_ComplexWildcard()
         {
             var engine = GetEngine();
-            engine.GenerateCatalog(OffsitePath, UsbPath, null);
+            engine.GenerateCatalog(OffsitePath, UsbPath);
             CreateFile(MainPath, "test_1.log", "x"); CreateFile(MainPath, "prod.log", "x");
             var inst = engine.AnalyzeForHome(MainPath, UsbPath, new List<string> { "*test*.log" }, MockReport);
             Assert(inst.Count == 1 && inst[0].Source == "prod.log", "Wildcard failed");
@@ -345,7 +345,7 @@ namespace SneakerNetTests
         static void Test_Exclude_Adv_Multiple()
         {
             var engine = GetEngine();
-            engine.GenerateCatalog(OffsitePath, UsbPath, null);
+            engine.GenerateCatalog(OffsitePath, UsbPath);
             CreateFile(MainPath, "a.tmp", "x");
             CreateFile(MainPath, "b.log", "x");
             CreateFile(MainPath, "c.txt", "x");
@@ -357,7 +357,7 @@ namespace SneakerNetTests
         static void Test_Exclude_Adv_ExactPath()
         {
             var engine = GetEngine();
-            engine.GenerateCatalog(OffsitePath, UsbPath, null);
+            engine.GenerateCatalog(OffsitePath, UsbPath);
             Directory.CreateDirectory(Path.Combine(MainPath, "A"));
             Directory.CreateDirectory(Path.Combine(MainPath, "B"));
             CreateFile(Path.Combine(MainPath, "A"), "secret.txt", "x"); // Exclude
@@ -370,7 +370,7 @@ namespace SneakerNetTests
         static void Test_Exclude_Adv_RegexChars()
         {
             var engine = GetEngine();
-            engine.GenerateCatalog(OffsitePath, UsbPath, null);
+            engine.GenerateCatalog(OffsitePath, UsbPath);
             CreateFile(MainPath, "file[1].txt", "x"); // Exclude this exact name
             CreateFile(MainPath, "file1.txt", "x");   // Keep this
             var rules = new List<string> { "file[1].txt" };
@@ -381,7 +381,7 @@ namespace SneakerNetTests
         static void Test_Exclude_Adv_FolderWildcard()
         {
             var engine = GetEngine();
-            engine.GenerateCatalog(OffsitePath, UsbPath, null);
+            engine.GenerateCatalog(OffsitePath, UsbPath);
             Directory.CreateDirectory(Path.Combine(MainPath, "BuildLogs"));
             CreateFile(Path.Combine(MainPath, "BuildLogs"), "log.txt", "x");
             CreateFile(MainPath, "Builder.exe", "x");
@@ -393,7 +393,7 @@ namespace SneakerNetTests
         static void Test_Exclude_Adv_QuestionMark()
         {
             var engine = GetEngine();
-            engine.GenerateCatalog(OffsitePath, UsbPath, null);
+            engine.GenerateCatalog(OffsitePath, UsbPath);
             CreateFile(MainPath, "file1.txt", "x");  // Matches file?.txt
             CreateFile(MainPath, "file12.txt", "x"); // Does not match
             var rules = new List<string> { "file?.txt" };
@@ -404,7 +404,7 @@ namespace SneakerNetTests
         static void Test_Exclude_Adv_DeepFolder()
         {
             var engine = GetEngine();
-            engine.GenerateCatalog(OffsitePath, UsbPath, null);
+            engine.GenerateCatalog(OffsitePath, UsbPath);
             string deepPath = Path.Combine(MainPath, "Src", "App", "node_modules");
             Directory.CreateDirectory(deepPath);
             CreateFile(deepPath, "pkg.json", "x");
@@ -419,7 +419,7 @@ namespace SneakerNetTests
         static void Test_Exclude_Adv_AltSeparator()
         {
             var engine = GetEngine();
-            engine.GenerateCatalog(OffsitePath, UsbPath, null);
+            engine.GenerateCatalog(OffsitePath, UsbPath);
             Directory.CreateDirectory(Path.Combine(MainPath, "bin"));
             CreateFile(Path.Combine(MainPath, "bin"), "app.dll", "x");
             var rules = new List<string> { "bin/" };
@@ -429,7 +429,7 @@ namespace SneakerNetTests
         static void Test_Exclude_Adv_Whitespace()
         {
             var engine = GetEngine();
-            engine.GenerateCatalog(OffsitePath, UsbPath, null);
+            engine.GenerateCatalog(OffsitePath, UsbPath);
             CreateFile(MainPath, "temp.txt", "x");
             var rules = new List<string> { "  *.txt  " };
             var inst = engine.AnalyzeForHome(MainPath, UsbPath, rules, MockReport);
@@ -440,7 +440,7 @@ namespace SneakerNetTests
         static void Test_Paths_Spaces()
         {
             var engine = GetEngine();
-            engine.GenerateCatalog(OffsitePath, UsbPath, null);
+            engine.GenerateCatalog(OffsitePath, UsbPath);
             CreateFile(MainPath, "File With Spaces.txt", "d");
             var inst = engine.AnalyzeForHome(MainPath, UsbPath, null, MockReport);
             engine.ExecuteHomeTransfer(MainPath, UsbPath, inst, MockReport);
@@ -451,7 +451,7 @@ namespace SneakerNetTests
         {
             var engine = GetEngine();
             string n = "🚀.txt";
-            engine.GenerateCatalog(OffsitePath, UsbPath, null);
+            engine.GenerateCatalog(OffsitePath, UsbPath);
             CreateFile(MainPath, n, "d");
             var inst = engine.AnalyzeForHome(MainPath, UsbPath, null, MockReport);
             engine.ExecuteHomeTransfer(MainPath, UsbPath, inst, MockReport);
@@ -461,7 +461,7 @@ namespace SneakerNetTests
         static void Test_Paths_DeepRecursion()
         {
             var engine = GetEngine();
-            engine.GenerateCatalog(OffsitePath, UsbPath, null);
+            engine.GenerateCatalog(OffsitePath, UsbPath);
             string d = Path.Combine(MainPath, "A", "B", "C"); Directory.CreateDirectory(d); CreateFile(d, "f.txt", "x");
             var inst = engine.AnalyzeForHome(MainPath, UsbPath, null, MockReport);
             engine.ExecuteHomeTransfer(MainPath, UsbPath, inst, MockReport);
@@ -471,7 +471,7 @@ namespace SneakerNetTests
         static void Test_Attr_ZeroByte()
         {
             var engine = GetEngine();
-            engine.GenerateCatalog(OffsitePath, UsbPath, null);
+            engine.GenerateCatalog(OffsitePath, UsbPath);
             CreateFile(MainPath, "z.bin", "");
             var inst = engine.AnalyzeForHome(MainPath, UsbPath, null, MockReport);
             Assert(inst.Count == 1, "Zero byte failed");
@@ -479,7 +479,7 @@ namespace SneakerNetTests
         static void Test_Attr_HiddenFile()
         {
             var engine = GetEngine();
-            engine.GenerateCatalog(OffsitePath, UsbPath, null);
+            engine.GenerateCatalog(OffsitePath, UsbPath);
             string p = Path.Combine(MainPath, "h.txt"); CreateFile(MainPath, "h.txt", "x"); File.SetAttributes(p, FileAttributes.Hidden);
             var inst = engine.AnalyzeForHome(MainPath, UsbPath, null, MockReport);
             Assert(inst.Count == 1, "Hidden failed");
@@ -487,7 +487,7 @@ namespace SneakerNetTests
         static void Test_Attr_SystemFile()
         {
             var engine = GetEngine();
-            engine.GenerateCatalog(OffsitePath, UsbPath, null);
+            engine.GenerateCatalog(OffsitePath, UsbPath);
             string p = Path.Combine(MainPath, "s.sys"); CreateFile(MainPath, "s.sys", "x"); File.SetAttributes(p, FileAttributes.System);
             Assert(engine.AnalyzeForHome(MainPath, UsbPath, null, MockReport).Count == 0, "System file failed");
         }
@@ -507,7 +507,7 @@ namespace SneakerNetTests
         static void Test_Safety_LockedFile()
         {
             var engine = GetEngine();
-            engine.GenerateCatalog(OffsitePath, UsbPath, null);
+            engine.GenerateCatalog(OffsitePath, UsbPath);
             string p = Path.Combine(MainPath, "l.txt"); CreateFile(MainPath, "l.txt", "x");
             using (var fs = File.Open(p, FileMode.Open, FileAccess.Read, FileShare.None))
             {
@@ -519,14 +519,14 @@ namespace SneakerNetTests
         {
             var engine = GetEngine();
             File.WriteAllText(Path.Combine(UsbPath, "instructions.json"), "x");
-            engine.GenerateCatalog(OffsitePath, UsbPath, null);
+            engine.GenerateCatalog(OffsitePath, UsbPath);
             Assert(!File.Exists(Path.Combine(UsbPath, "instructions.json")), "Instruction cleanup failed");
         }
         static void Test_Safety_EmptyDirCleanup()
         {
             var engine = GetEngine();
             Directory.CreateDirectory(Path.Combine(OffsitePath, "E"));
-            engine.GenerateCatalog(OffsitePath, UsbPath, null);
+            engine.GenerateCatalog(OffsitePath, UsbPath);
             engine.ExecuteOffsiteUpdate(OffsitePath, UsbPath, new List<UpdateInstruction>(), MockReport);
             Assert(!Directory.Exists(Path.Combine(OffsitePath, "E")), "Empty dir cleanup failed");
         }
@@ -545,7 +545,7 @@ namespace SneakerNetTests
             var t = DateTime.UtcNow;
             File.SetLastWriteTimeUtc(Path.Combine(MainPath, "C_mv.txt"), t);
             File.SetLastWriteTimeUtc(Path.Combine(OffsitePath, "S", "C.txt"), t);
-            engine.GenerateCatalog(OffsitePath, UsbPath, null);
+            engine.GenerateCatalog(OffsitePath, UsbPath);
             var inst = engine.AnalyzeForHome(MainPath, UsbPath, null, MockReport);
             Assert(inst.Any(x => x.Action == "COPY" && x.Source == "A.txt"), "A missing");
             Assert(inst.Any(x => x.Action == "DELETE" && x.Source == "B.txt"), "B missing");
@@ -571,7 +571,7 @@ namespace SneakerNetTests
                 File.SetLastWriteTimeUtc(Path.Combine(MainPath, $"f{i}.txt"), DateTime.UtcNow.AddMinutes(10));
             }
 
-            engine.GenerateCatalog(OffsitePath, UsbPath, null);
+            engine.GenerateCatalog(OffsitePath, UsbPath);
             var inst = engine.AnalyzeForHome(MainPath, UsbPath, null, MockReport);
 
             Assert(inst.Count == 5, "Should have 5 instructions");
@@ -589,7 +589,7 @@ namespace SneakerNetTests
             // Main: A.txt deleted. B.txt created (Size 10, but NEW Time)
             CreateFile(MainPath, "B.txt", "0987654321"); // Size 10
 
-            engine.GenerateCatalog(OffsitePath, UsbPath, null);
+            engine.GenerateCatalog(OffsitePath, UsbPath);
             var inst = engine.AnalyzeForHome(MainPath, UsbPath, null, MockReport);
 
             // Should NOT be a move because times differ
@@ -610,7 +610,7 @@ namespace SneakerNetTests
             CreateFile(MainPath, "B.txt", "1234567890");
             File.SetLastWriteTimeUtc(Path.Combine(MainPath, "B.txt"), t1);
 
-            engine.GenerateCatalog(OffsitePath, UsbPath, null);
+            engine.GenerateCatalog(OffsitePath, UsbPath);
             var inst = engine.AnalyzeForHome(MainPath, UsbPath, null, MockReport);
 
             Assert(inst.Count == 1 && inst[0].Action == "MOVE", "Should detect MOVE");
