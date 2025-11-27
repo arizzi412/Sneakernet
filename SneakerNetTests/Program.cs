@@ -94,8 +94,12 @@ namespace SneakerNetTests
             Run("40. Safety: USB Instruction Cleanup", Test_Safety_InstructionCleanup);
             Run("41. Safety: Empty Directory Cleanup", Test_Safety_EmptyDirCleanup);
 
-            // --- 8. INTEGRATION ---
+            // --- 8. INTEGRATION & EDGE CASES ---
             Run("42. Integration: Full Simulation", Test_Integration_FullScenario);
+            Run("43. Resilience: Batch Update (5 files same size)", Test_Resilience_BatchUpdate_SameSize);
+            Run("44. Resilience: False Positive Move (Same size, diff time)", Test_Resilience_FalsePositiveMove_DiffTime);
+            Run("45. Resilience: True Move (Same size, same time)", Test_Resilience_TrueMove_SameTime);
+
 
             Console.WriteLine($"\n=== COMPLETED: {passed}/{total} PASSED ===");
             Console.ReadLine();
@@ -198,22 +202,18 @@ namespace SneakerNetTests
         static void Test_Move_Swap()
         {
             var engine = GetEngine();
-            // A has content "ContentA", B has content "ContentB"
             CreateFile(OffsitePath, "A.txt", "ContentA");
             CreateFile(OffsitePath, "B.txt", "ContentB");
 
-            // Swap: Main B gets "ContentA", Main A gets "ContentB"
             CreateFile(MainPath, "B.txt", "ContentA");
             CreateFile(MainPath, "A.txt", "ContentB");
 
             var t1 = DateTime.UtcNow.AddMinutes(-10);
             var t2 = DateTime.UtcNow.AddMinutes(-5);
 
-            // Track "ContentA" (Offsite A -> Main B)
             File.SetLastWriteTimeUtc(Path.Combine(OffsitePath, "A.txt"), t1);
             File.SetLastWriteTimeUtc(Path.Combine(MainPath, "B.txt"), t1);
 
-            // Track "ContentB" (Offsite B -> Main A)
             File.SetLastWriteTimeUtc(Path.Combine(OffsitePath, "B.txt"), t2);
             File.SetLastWriteTimeUtc(Path.Combine(MainPath, "A.txt"), t2);
 
@@ -258,7 +258,7 @@ namespace SneakerNetTests
             var engine = GetEngine();
             CreateFile(OffsitePath, "D", "file_D_content");
             Directory.CreateDirectory(Path.Combine(MainPath, "D"));
-            CreateFile(Path.Combine(MainPath, "D"), "c.txt", "child_content"); // Diff size/content
+            CreateFile(Path.Combine(MainPath, "D"), "c.txt", "child_content");
             engine.GenerateCatalog(OffsitePath, UsbPath, null);
             var inst = engine.AnalyzeForHome(MainPath, UsbPath, null, MockReport);
             Assert(inst.Any(x => x.Action == "DELETE" && x.Source == "D"), "Delete file D missing");
@@ -270,7 +270,7 @@ namespace SneakerNetTests
             Directory.CreateDirectory(Path.Combine(OffsitePath, "D"));
             CreateFile(Path.Combine(OffsitePath, "D"), "c.txt", "child_content");
             if (Directory.Exists(Path.Combine(MainPath, "D"))) Directory.Delete(Path.Combine(MainPath, "D"), true);
-            CreateFile(MainPath, "D", "file_D_content_longer"); // Diff size
+            CreateFile(MainPath, "D", "file_D_content_longer");
             engine.GenerateCatalog(OffsitePath, UsbPath, null);
             var inst = engine.AnalyzeForHome(MainPath, UsbPath, null, MockReport);
             Assert(inst.Any(x => x.Action == "DELETE"), "Delete child missing");
@@ -349,126 +349,91 @@ namespace SneakerNetTests
             CreateFile(MainPath, "a.tmp", "x");
             CreateFile(MainPath, "b.log", "x");
             CreateFile(MainPath, "c.txt", "x");
-
             var rules = new List<string> { "*.tmp", "*.log" };
             var inst = engine.AnalyzeForHome(MainPath, UsbPath, rules, MockReport);
-
             Assert(inst.Count == 1, "Should allow multiple exclusion rules");
-            Assert(inst[0].Source == "c.txt", "Failed to keep c.txt or failed to exclude others");
+            Assert(inst[0].Source == "c.txt", "Failed to keep c.txt");
         }
-
         static void Test_Exclude_Adv_ExactPath()
         {
             var engine = GetEngine();
             engine.GenerateCatalog(OffsitePath, UsbPath, null);
-
             Directory.CreateDirectory(Path.Combine(MainPath, "A"));
             Directory.CreateDirectory(Path.Combine(MainPath, "B"));
-
             CreateFile(Path.Combine(MainPath, "A"), "secret.txt", "x"); // Exclude
             CreateFile(Path.Combine(MainPath, "B"), "secret.txt", "x"); // Keep
-
             var rules = new List<string> { @"A\secret.txt" };
             var inst = engine.AnalyzeForHome(MainPath, UsbPath, rules, MockReport);
-
             Assert(inst.Any(x => x.Source == @"B\secret.txt"), "Failed to keep B");
             Assert(!inst.Any(x => x.Source == @"A\secret.txt"), "Failed to exclude A");
         }
-
         static void Test_Exclude_Adv_RegexChars()
         {
             var engine = GetEngine();
             engine.GenerateCatalog(OffsitePath, UsbPath, null);
-
             CreateFile(MainPath, "file[1].txt", "x"); // Exclude this exact name
             CreateFile(MainPath, "file1.txt", "x");   // Keep this
-
             var rules = new List<string> { "file[1].txt" };
             var inst = engine.AnalyzeForHome(MainPath, UsbPath, rules, MockReport);
-
             Assert(inst.Any(x => x.Source == "file1.txt"), "Should keep file1.txt");
             Assert(!inst.Any(x => x.Source == "file[1].txt"), "Should exclude file[1].txt");
         }
-
         static void Test_Exclude_Adv_FolderWildcard()
         {
             var engine = GetEngine();
             engine.GenerateCatalog(OffsitePath, UsbPath, null);
-
-            // "Build*\" should exclude "BuildLogs\" folder but NOT "Builder.exe" file
             Directory.CreateDirectory(Path.Combine(MainPath, "BuildLogs"));
             CreateFile(Path.Combine(MainPath, "BuildLogs"), "log.txt", "x");
             CreateFile(MainPath, "Builder.exe", "x");
-
             var rules = new List<string> { "Build*\\" }; // Trailing slash = Directory Only
             var inst = engine.AnalyzeForHome(MainPath, UsbPath, rules, MockReport);
-
             Assert(inst.Any(x => x.Source == "Builder.exe"), "Should keep Builder.exe");
             Assert(!inst.Any(x => x.Source.Contains("log.txt")), "Should exclude content of BuildLogs");
         }
-
         static void Test_Exclude_Adv_QuestionMark()
         {
             var engine = GetEngine();
             engine.GenerateCatalog(OffsitePath, UsbPath, null);
-
             CreateFile(MainPath, "file1.txt", "x");  // Matches file?.txt
             CreateFile(MainPath, "file12.txt", "x"); // Does not match
-
             var rules = new List<string> { "file?.txt" };
             var inst = engine.AnalyzeForHome(MainPath, UsbPath, rules, MockReport);
-
             Assert(inst.Any(x => x.Source == "file12.txt"), "Should keep file12.txt");
             Assert(!inst.Any(x => x.Source == "file1.txt"), "Should exclude file1.txt");
         }
-
         static void Test_Exclude_Adv_DeepFolder()
         {
             var engine = GetEngine();
             engine.GenerateCatalog(OffsitePath, UsbPath, null);
-
             string deepPath = Path.Combine(MainPath, "Src", "App", "node_modules");
             Directory.CreateDirectory(deepPath);
             CreateFile(deepPath, "pkg.json", "x");
-
             string otherPath = Path.Combine(MainPath, "Src", "Other");
             Directory.CreateDirectory(otherPath);
             CreateFile(otherPath, "keep.txt", "x");
-
             var rules = new List<string> { "node_modules\\" };
             var inst = engine.AnalyzeForHome(MainPath, UsbPath, rules, MockReport);
-
             Assert(inst.Any(x => x.Source.Contains("keep.txt")), "Should keep other files");
             Assert(!inst.Any(x => x.Source.Contains("pkg.json")), "Should exclude deep folder");
         }
-
         static void Test_Exclude_Adv_AltSeparator()
         {
             var engine = GetEngine();
             engine.GenerateCatalog(OffsitePath, UsbPath, null);
-
             Directory.CreateDirectory(Path.Combine(MainPath, "bin"));
             CreateFile(Path.Combine(MainPath, "bin"), "app.dll", "x");
-
-            // User types "bin/" instead of "bin\"
             var rules = new List<string> { "bin/" };
             var inst = engine.AnalyzeForHome(MainPath, UsbPath, rules, MockReport);
-
             Assert(inst.Count == 0, "Forward slash should still trigger Directory Exclusion logic");
         }
-
         static void Test_Exclude_Adv_Whitespace()
         {
             var engine = GetEngine();
             engine.GenerateCatalog(OffsitePath, UsbPath, null);
-
             CreateFile(MainPath, "temp.txt", "x");
-
-            // User put spaces around the pattern
             var rules = new List<string> { "  *.txt  " };
             var inst = engine.AnalyzeForHome(MainPath, UsbPath, rules, MockReport);
-
-            Assert(inst.Count == 0, "Should exclude temp.txt (whitespace should be trimmed)");
+            Assert(inst.Count == 0, "Should exclude temp.txt");
         }
 
         // --- 6. PATHS & ATTRIBUTES ---
@@ -566,86 +531,98 @@ namespace SneakerNetTests
             Assert(!Directory.Exists(Path.Combine(OffsitePath, "E")), "Empty dir cleanup failed");
         }
 
-        // --- 8. INTEGRATION ---
+        // --- 8. INTEGRATION & RESILIENCE ---
         static void Test_Integration_FullScenario()
         {
             var engine = GetEngine();
-            // Use distinct content lengths to prevent ambiguous move matching.
             CreateFile(OffsitePath, "A.txt", "content_A_v1");
-            CreateFile(OffsitePath, "B.txt", "content_B_delete_me_now"); // Distinct size (23 chars)
-            CreateFile(Path.Combine(OffsitePath, "S"), "C.txt", "content_C_mov"); // Size 13 chars
-
-            CreateFile(MainPath, "A.txt", "content_A_v2_UPDATED"); // 20 chars
+            CreateFile(OffsitePath, "B.txt", "content_B_delete_me_now"); // Distinct size
+            CreateFile(Path.Combine(OffsitePath, "S"), "C.txt", "content_C_mov");
+            CreateFile(MainPath, "A.txt", "content_A_v2_UPDATED");
             File.SetLastWriteTimeUtc(Path.Combine(MainPath, "A.txt"), DateTime.UtcNow.AddMinutes(1));
-
             // B deleted
-
-            CreateFile(MainPath, "C_mv.txt", "content_C_mov"); // Matches Offsite C size/content
+            CreateFile(MainPath, "C_mv.txt", "content_C_mov");
             var t = DateTime.UtcNow;
             File.SetLastWriteTimeUtc(Path.Combine(MainPath, "C_mv.txt"), t);
             File.SetLastWriteTimeUtc(Path.Combine(OffsitePath, "S", "C.txt"), t);
+            engine.GenerateCatalog(OffsitePath, UsbPath, null);
+            var inst = engine.AnalyzeForHome(MainPath, UsbPath, null, MockReport);
+            Assert(inst.Any(x => x.Action == "COPY" && x.Source == "A.txt"), "A missing");
+            Assert(inst.Any(x => x.Action == "DELETE" && x.Source == "B.txt"), "B missing");
+            Assert(inst.Any(x => x.Action == "MOVE" && x.Source == Path.Combine("S", "C.txt")), "C missing");
+            engine.ExecuteHomeTransfer(MainPath, UsbPath, inst, MockReport);
+            engine.ExecuteOffsiteUpdate(OffsitePath, UsbPath, engine.AnalyzeForOffsite(UsbPath), MockReport);
+            Assert(File.ReadAllText(Path.Combine(OffsitePath, "A.txt")) == "content_A_v2_UPDATED", "A content");
+            Assert(!File.Exists(Path.Combine(OffsitePath, "B.txt")), "B gone");
+            Assert(File.Exists(Path.Combine(OffsitePath, "C_mv.txt")), "C moved");
+        }
+
+        static void Test_Resilience_BatchUpdate_SameSize()
+        {
+            var engine = GetEngine();
+            // Create 5 identical files Offsite (Same size, same content)
+            for (int i = 1; i <= 5; i++) CreateFile(OffsitePath, $"f{i}.txt", "1234567890");
+
+            // Update 5 files on Main (Same size, NEW content/time)
+            // Note: Even if content length is same, timestamp changes.
+            for (int i = 1; i <= 5; i++)
+            {
+                CreateFile(MainPath, $"f{i}.txt", "1234567890");
+                File.SetLastWriteTimeUtc(Path.Combine(MainPath, $"f{i}.txt"), DateTime.UtcNow.AddMinutes(10));
+            }
 
             engine.GenerateCatalog(OffsitePath, UsbPath, null);
             var inst = engine.AnalyzeForHome(MainPath, UsbPath, null, MockReport);
 
-            Assert(inst.Any(x => x.Action == "COPY" && x.Source == "A.txt"), "A missing");
-            Assert(inst.Any(x => x.Action == "DELETE" && x.Source == "B.txt"), "B missing");
-            Assert(inst.Any(x => x.Action == "MOVE" && x.Source == Path.Combine("S", "C.txt")), "C missing");
+            Assert(inst.Count == 5, "Should have 5 instructions");
+            Assert(inst.All(x => x.Action == "COPY"), "All should be COPY updates");
+        }
 
-            engine.ExecuteHomeTransfer(MainPath, UsbPath, inst, MockReport);
-            engine.ExecuteOffsiteUpdate(OffsitePath, UsbPath, engine.AnalyzeForOffsite(UsbPath), MockReport);
+        static void Test_Resilience_FalsePositiveMove_DiffTime()
+        {
+            var engine = GetEngine();
+            // Offsite: A.txt (Size 10)
+            CreateFile(OffsitePath, "A.txt", "1234567890");
+            var t1 = DateTime.UtcNow.AddMinutes(-10);
+            File.SetLastWriteTimeUtc(Path.Combine(OffsitePath, "A.txt"), t1);
 
-            Assert(File.ReadAllText(Path.Combine(OffsitePath, "A.txt")) == "content_A_v2_UPDATED", "A content");
-            Assert(!File.Exists(Path.Combine(OffsitePath, "B.txt")), "B gone");
-            Assert(File.Exists(Path.Combine(OffsitePath, "C_mv.txt")), "C moved");
-            Assert(!Directory.Exists(Path.Combine(OffsitePath, "S")), "S gone");
+            // Main: A.txt deleted. B.txt created (Size 10, but NEW Time)
+            CreateFile(MainPath, "B.txt", "0987654321"); // Size 10
+
+            engine.GenerateCatalog(OffsitePath, UsbPath, null);
+            var inst = engine.AnalyzeForHome(MainPath, UsbPath, null, MockReport);
+
+            // Should NOT be a move because times differ
+            Assert(inst.Any(x => x.Action == "DELETE" && x.Source == "A.txt"), "A should be deleted");
+            Assert(inst.Any(x => x.Action == "COPY" && x.Source == "B.txt"), "B should be copied");
+            Assert(!inst.Any(x => x.Action == "MOVE"), "Should not be a move");
+        }
+
+        static void Test_Resilience_TrueMove_SameTime()
+        {
+            var engine = GetEngine();
+            // Offsite: A.txt
+            CreateFile(OffsitePath, "A.txt", "1234567890");
+            var t1 = DateTime.UtcNow.AddMinutes(-10);
+            File.SetLastWriteTimeUtc(Path.Combine(OffsitePath, "A.txt"), t1);
+
+            // Main: A.txt -> B.txt (Same Size, Same Time)
+            CreateFile(MainPath, "B.txt", "1234567890");
+            File.SetLastWriteTimeUtc(Path.Combine(MainPath, "B.txt"), t1);
+
+            engine.GenerateCatalog(OffsitePath, UsbPath, null);
+            var inst = engine.AnalyzeForHome(MainPath, UsbPath, null, MockReport);
+
+            Assert(inst.Count == 1 && inst[0].Action == "MOVE", "Should detect MOVE");
+            Assert(inst[0].Source == "A.txt" && inst[0].Destination == "B.txt", "Wrong move params");
         }
 
         // --- UTILS ---
-        static void CreateFile(string d, string n, string c) { 
-            if (!Directory.Exists(d)) Directory.CreateDirectory(d);
-            File.WriteAllText(Path.Combine(d, n), c); 
-        }
-        static void SyncTimestamps(string p) 
-        { 
-            SyncTimestampsTo(Path.Combine(MainPath, p), Path.Combine(OffsitePath, p)); 
-        }
-        static void SyncTimestampsTo(string s, string d) 
-        { 
-            if (File.Exists(s) && File.Exists(d)) 
-            { var t = DateTime.UtcNow; 
-                File.SetLastWriteTimeUtc(s, t); 
-                File.SetLastWriteTimeUtc(d, t); } 
-        }
-        static void SetupDirs() 
-        { 
-            if (!Directory.Exists(MainPath)) 
-                Directory.CreateDirectory(MainPath); 
-            if (!Directory.Exists(OffsitePath)) 
-                Directory.CreateDirectory(OffsitePath); 
-            if (!Directory.Exists(UsbPath))
-                Directory.CreateDirectory(UsbPath); }
-
-        static void Cleanup() 
-        { 
-            if (Directory.Exists(TestRoot)) 
-            { 
-                for (int i = 0; i < 3; i++) 
-                { 
-                    try 
-                    {
-                        Directory.Delete(TestRoot, true); 
-                        break; 
-                    } 
-                    catch { System.Threading.Thread.Sleep(100); }
-                } 
-            } 
-        }
-
-        static void Assert(bool c, string m) 
-        { 
-            if (!c) 
-                throw new Exception(m); 
-        }
+        static void CreateFile(string d, string n, string c) { if (!Directory.Exists(d)) Directory.CreateDirectory(d); File.WriteAllText(Path.Combine(d, n), c); }
+        static void SyncTimestamps(string p) { SyncTimestampsTo(Path.Combine(MainPath, p), Path.Combine(OffsitePath, p)); }
+        static void SyncTimestampsTo(string s, string d) { if (File.Exists(s) && File.Exists(d)) { var t = DateTime.UtcNow; File.SetLastWriteTimeUtc(s, t); File.SetLastWriteTimeUtc(d, t); } }
+        static void SetupDirs() { if (!Directory.Exists(MainPath)) Directory.CreateDirectory(MainPath); if (!Directory.Exists(OffsitePath)) Directory.CreateDirectory(OffsitePath); if (!Directory.Exists(UsbPath)) Directory.CreateDirectory(UsbPath); }
+        static void Cleanup() { if (Directory.Exists(TestRoot)) { for (int i = 0; i < 3; i++) { try { Directory.Delete(TestRoot, true); break; } catch { System.Threading.Thread.Sleep(100); } } } }
+        static void Assert(bool c, string m) { if (!c) throw new Exception(m); }
     }
 }
