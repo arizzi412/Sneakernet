@@ -1,7 +1,4 @@
-﻿using System;
-using System.Collections.Generic;
-using System.IO;
-using System.Text.Json;
+﻿using System.Text.Json;
 
 namespace SneakerNetSync
 {
@@ -15,14 +12,14 @@ namespace SneakerNetSync
         // Defaults updated to explicit folder syntax
         public List<string> ExclusionPatterns { get; set; } = new List<string>
         {
-            "System Volume Information\\",
-            "$RECYCLE.BIN\\",
-            "bin\\",
-            "obj\\",
-            ".git\\",
-            ".vs\\",
-            "*.tmp",
-            "Thumbs.db"
+            "**/System Volume Information/",
+            "**/$RECYCLE.BIN/",
+            "**/bin/",
+            "**/obj/",
+            "**/.git/",
+            "**/.vs/",
+            "**/*.tmp",
+            "**/Thumbs.db"
         };
 
         private static string FilePath => Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "settings.json");

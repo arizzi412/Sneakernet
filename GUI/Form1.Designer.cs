@@ -313,7 +313,7 @@
             label5.AutoSize = true;
             label5.Location = new Point(14, 10);
             label5.Name = "label5";
-            label5.Size = new Size(452, 105);
+            label5.Size = new Size(320, 210);
             label5.TabIndex = 0;
             label5.Text = resources.GetString("label5.Text");
             // 

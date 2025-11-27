@@ -373,7 +373,11 @@ namespace SneakerNetTests
             engine.GenerateCatalog(OffsitePath, UsbPath);
             CreateFile(MainPath, "file[1].txt", "x"); // Exclude this exact name
             CreateFile(MainPath, "file1.txt", "x");   // Keep this
-            var rules = new List<string> { "file[1].txt" };
+
+            // FIX: Use Standard Glob Escaping for literal brackets
+            // "file[[]1].txt" tells Glob to match the literal character '[' followed by '1]'
+            var rules = new List<string> { "file[[]1].txt" };
+
             var inst = engine.AnalyzeForHome(MainPath, UsbPath, rules, MockReport);
             Assert(inst.Any(x => x.Source == "file1.txt"), "Should keep file1.txt");
             Assert(!inst.Any(x => x.Source == "file[1].txt"), "Should exclude file[1].txt");
@@ -394,13 +398,18 @@ namespace SneakerNetTests
         {
             var engine = GetEngine();
             engine.GenerateCatalog(OffsitePath, UsbPath);
-            CreateFile(MainPath, "file1.txt", "x");  // Matches file?.txt
-            CreateFile(MainPath, "file12.txt", "x"); // Does not match
-            var rules = new List<string> { "file?.txt" };
+            CreateFile(MainPath, "file1.txt", "x");
+            CreateFile(MainPath, "file12.txt", "x");
+
+            // We use the Recursive pattern here. 
+            // Thanks to the Engine fix, this will now correctly catch 'file1.txt' at the root.
+            var rules = new List<string> { "**/file?.txt" };
+
             var inst = engine.AnalyzeForHome(MainPath, UsbPath, rules, MockReport);
             Assert(inst.Any(x => x.Source == "file12.txt"), "Should keep file12.txt");
             Assert(!inst.Any(x => x.Source == "file1.txt"), "Should exclude file1.txt");
         }
+
         static void Test_Exclude_Adv_DeepFolder()
         {
             var engine = GetEngine();
@@ -411,7 +420,11 @@ namespace SneakerNetTests
             string otherPath = Path.Combine(MainPath, "Src", "Other");
             Directory.CreateDirectory(otherPath);
             CreateFile(otherPath, "keep.txt", "x");
-            var rules = new List<string> { "node_modules\\" };
+
+            // GLOB FIX: Use "**/node_modules/" to match nested directories. 
+            // "node_modules/" (without star) assumes the folder is at the root.
+            var rules = new List<string> { "**/node_modules/" };
+
             var inst = engine.AnalyzeForHome(MainPath, UsbPath, rules, MockReport);
             Assert(inst.Any(x => x.Source.Contains("keep.txt")), "Should keep other files");
             Assert(!inst.Any(x => x.Source.Contains("pkg.json")), "Should exclude deep folder");

@@ -4,6 +4,7 @@ using System.IO;
 using System.Linq;
 using System.Text.Json;
 using System.Text.RegularExpressions;
+using DotNet.Globbing; // Requires 'DotNet.Glob' NuGet package
 
 namespace SneakerNetSync
 {
@@ -15,12 +16,6 @@ namespace SneakerNetSync
         const string INSTRUCTIONS_FILENAME = "instructions.json";
         const string DATA_FOLDER_NAME = "Data";
         const int MIN_FREE_SPACE_MB = 200;
-
-        private class ExclusionRule
-        {
-            public Regex Pattern { get; set; }
-            public bool DirectoryOnly { get; set; }
-        }
 
         // --- PHASE 1: ANALYSIS ---
 
@@ -280,25 +275,19 @@ namespace SneakerNetSync
         private List<UpdateInstruction> GenerateInstructions(List<FileEntry> mainFiles, List<FileEntry> offsiteFiles)
         {
             var instructions = new List<UpdateInstruction>();
-            // Lookup for exact offsite paths
             var offsitePathMap = offsiteFiles.ToDictionary(x => x.RelativePath, x => x, StringComparer.OrdinalIgnoreCase);
-
-            // Track which offsite files are perfectly matched (and thus "claimed")
             var matchedOffsitePaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             var unmatchedMainFiles = new List<FileEntry>();
 
-            // 1. Identify Exact Matches (Update detection - same path, same content)
             foreach (var main in mainFiles)
             {
                 if (offsitePathMap.TryGetValue(main.RelativePath, out var existing))
                 {
-                    // Strict equality check: Size must match, Time must be very close
                     bool isSame = (main.Size == existing.Size) &&
                                   (Math.Abs((main.LastWriteTime - existing.LastWriteTime).TotalSeconds) < 0.1);
 
                     if (isSame)
                     {
-                        // Content matches. Check for Case-Only Rename.
                         if (!string.Equals(main.RelativePath, existing.RelativePath, StringComparison.Ordinal))
                         {
                             instructions.Add(new UpdateInstruction { Action = "MOVE", Source = existing.RelativePath, Destination = main.RelativePath, SizeInfo = "-" });
@@ -307,52 +296,38 @@ namespace SneakerNetSync
                     }
                     else
                     {
-                        // Same path, but content changed (Update)
                         unmatchedMainFiles.Add(main);
                     }
                 }
                 else
                 {
-                    // New file locally
                     unmatchedMainFiles.Add(main);
                 }
             }
 
-            // 2. Prepare Potential Move Sources
-            // Any offsite file NOT matched by path/content is a candidate to be moved or deleted.
             var moveSourceMap = offsiteFiles
                 .Where(x => !matchedOffsitePaths.Contains(x.RelativePath))
-                .GroupBy(x => x.Size) // Group by size for efficiency
+                .GroupBy(x => x.Size)
                 .ToDictionary(g => g.Key, g => g.ToList());
 
-            // 3. PASS 1: Detect Moves
-            // We prioritize Moves over Copies. If a file exists elsewhere with same metadata, it's a move.
             var handledMainFiles = new HashSet<FileEntry>();
 
             foreach (var main in unmatchedMainFiles)
             {
                 if (moveSourceMap.TryGetValue(main.Size, out var candidates))
                 {
-                    // Find candidate with matching timestamp
                     var matchIndex = candidates.FindIndex(x => Math.Abs((x.LastWriteTime - main.LastWriteTime).TotalSeconds) < 0.1);
                     if (matchIndex != -1)
                     {
                         var source = candidates[matchIndex];
-
-                        // Create MOVE instruction
                         instructions.Add(new UpdateInstruction { Action = "MOVE", Source = source.RelativePath, Destination = main.RelativePath, SizeInfo = "-" });
-
-                        // Mark Main file as handled
                         handledMainFiles.Add(main);
-
-                        // Remove from candidates (Source is "consumed")
                         candidates.RemoveAt(matchIndex);
                         if (candidates.Count == 0) moveSourceMap.Remove(main.Size);
                     }
                 }
             }
 
-            // 4. PASS 2: Generate Copies (Updates & New Files)
             foreach (var main in unmatchedMainFiles)
             {
                 if (handledMainFiles.Contains(main)) continue;
@@ -366,15 +341,10 @@ namespace SneakerNetSync
                     SizeInfo = BytesToMb(main.Size)
                 });
 
-                // Prevent implicit Delete of the file we are overwriting.
-                // If we are doing a COPY (Update) of 'A.txt', and 'A.txt' exists offsite but wasn't moved,
-                // then 'A.txt' (Offsite) is effectively replaced. We should remove it from moveSourceMap
-                // so we don't generate a "DELETE A.txt" instruction later.
                 if (offsitePathMap.TryGetValue(main.RelativePath, out var oldVersion))
                 {
                     if (moveSourceMap.TryGetValue(oldVersion.Size, out var candidates))
                     {
-                        // Find and remove the exact old version from candidates
                         var selfRef = candidates.FirstOrDefault(x => x.RelativePath == oldVersion.RelativePath);
                         if (selfRef != null)
                         {
@@ -385,8 +355,6 @@ namespace SneakerNetSync
                 }
             }
 
-            // 5. Generate Deletes
-            // Any offsite file still in moveSourceMap was neither matched, moved, nor updated.
             foreach (var kvp in moveSourceMap)
             {
                 foreach (var item in kvp.Value)
@@ -403,80 +371,79 @@ namespace SneakerNetSync
             var results = new List<FileEntry>();
             if (!Directory.Exists(root)) return results;
 
-            var rules = new List<ExclusionRule>();
+            // Structure to hold glob and whether it requires a directory context
+            var globRules = new List<(Glob Pattern, bool IsDirectoryOnly)>();
+            var globOptions = new GlobOptions { Evaluation = { CaseInsensitive = true } };
+
             if (exclusions != null)
             {
-                foreach (var rawPattern in exclusions)
+                foreach (var pattern in exclusions.Where(x => !string.IsNullOrWhiteSpace(x)))
                 {
-                    if (string.IsNullOrWhiteSpace(rawPattern)) continue;
-                    string pattern = rawPattern.Trim();
-                    bool isDirOnly = false;
+                    string p = pattern.Trim().Replace('\\', '/');
+                    bool isDir = p.EndsWith("/");
 
-                    // 1. Handle Folder-Only syntax (trailing slash)
-                    if (pattern.EndsWith(Path.DirectorySeparatorChar) || pattern.EndsWith(Path.AltDirectorySeparatorChar))
+                    if (isDir)
                     {
-                        isDirOnly = true;
-                        pattern = pattern.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+                        // Directory Only: "Build*/"
+                        // Pattern becomes "Build*/**/*" to match content.
+                        // We mark IsDirectoryOnly=true to strictly ignore root files like "Builder.exe"
+                        globRules.Add((Glob.Parse(p + "**/*", globOptions), true));
                     }
-
-                    // 2. Convert Wildcards to Regex
-                    // Escape special regex characters (like dots, brackets)
-                    string regexPattern = Regex.Escape(pattern)
-                                               .Replace("\\*", ".*")  // Convert * to .*
-                                               .Replace("\\?", ".");  // Convert ? to .
-
-                    // 3. STRICT ANCHORING: 
-                    // Always wrap in ^ and $ so "temp" does not match "template"
-                    regexPattern = "^" + regexPattern + "$";
-
-                    rules.Add(new ExclusionRule
+                    else
                     {
-                        Pattern = new Regex(regexPattern, RegexOptions.IgnoreCase),
-                        DirectoryOnly = isDirOnly
-                    });
+                        // File or Folder: "bin"
+                        // 1. Exact match (File or Folder name matches "bin")
+                        globRules.Add((Glob.Parse(p, globOptions), false));
+                        // 2. Recursive match (Contents of folder "bin/**/*")
+                        //    This part acts as a directory-only match
+                        globRules.Add((Glob.Parse(p + "/**/*", globOptions), true));
+                    }
                 }
             }
 
             var opts = new EnumerationOptions { RecurseSubdirectories = true, IgnoreInaccessible = true, AttributesToSkip = FileAttributes.System | FileAttributes.ReparsePoint };
 
-            try
+            foreach (var f in Directory.EnumerateFiles(root, "*", opts))
             {
-                foreach (var f in Directory.EnumerateFiles(root, "*", opts))
-                {
-                    string relPath = Path.GetRelativePath(root, f);
-                    if (IsExcluded(relPath, rules)) continue;
+                // Normalize path for Globbing (forward slashes)
+                string relPath = Path.GetRelativePath(root, f).Replace('\\', '/');
 
-                    try
+                // Root files (no slashes) cannot be inside a relative directory
+                bool hasDirectoryParts = relPath.Contains('/');
+
+                bool isExcluded = false;
+                foreach (var rule in globRules)
+                {
+                    if (rule.IsDirectoryOnly)
                     {
-                        var info = new FileInfo(f);
-                        results.Add(new FileEntry { RelativePath = relPath, Size = info.Length, LastWriteTime = info.LastWriteTimeUtc });
+                        // If rule is "Folder-Only" (e.g. "Build*/" -> "Build*/**/*"), 
+                        // it shouldn't match a file in the root (like "Builder.exe").
+                        if (!hasDirectoryParts) continue;
                     }
-                    catch { }
+
+                    if (rule.Pattern.IsMatch(relPath))
+                    {
+                        isExcluded = true;
+                        break;
+                    }
                 }
+
+                if (isExcluded) continue;
+
+                try
+                {
+                    var info = new FileInfo(f);
+                    results.Add(new FileEntry
+                    {
+                        // Return to system separators for the rest of the app
+                        RelativePath = relPath.Replace('/', Path.DirectorySeparatorChar),
+                        Size = info.Length,
+                        LastWriteTime = info.LastWriteTimeUtc
+                    });
+                }
+                catch { }
             }
-            catch { }
             return results;
-        }
-
-        private bool IsExcluded(string relPath, List<ExclusionRule> rules)
-        {
-            if (rules == null || rules.Count == 0) return false;
-            string fileName = Path.GetFileName(relPath);
-            var segments = Path.GetDirectoryName(relPath)?.Split(new[] { Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar }, StringSplitOptions.RemoveEmptyEntries);
-
-            foreach (var rule in rules)
-            {
-                if (segments != null)
-                {
-                    foreach (var part in segments) if (rule.Pattern.IsMatch(part)) return true;
-                }
-                if (!rule.DirectoryOnly)
-                {
-                    if (rule.Pattern.IsMatch(fileName)) return true;
-                    if (rule.Pattern.IsMatch(relPath)) return true;
-                }
-            }
-            return false;
         }
 
         private List<FileEntry> LoadCatalog(string p)
@@ -486,7 +453,7 @@ namespace SneakerNetSync
                 if (File.Exists(p))
                     return JsonSerializer.Deserialize<List<FileEntry>>(File.ReadAllText(p));
             }
-            catch { /* Ignore corruption and treat as empty */ }
+            catch { }
             return new List<FileEntry>();
         }
 
