@@ -12,7 +12,6 @@
 
         private void InitializeComponent()
         {
-            System.ComponentModel.ComponentResourceManager resources = new System.ComponentModel.ComponentResourceManager(typeof(Form1));
             tabControls = new TabControl();
             tabHome = new TabPage();
             grpHomeActions = new GroupBox();
@@ -38,7 +37,7 @@
             tabSettings = new TabPage();
             btnSaveSettings = new Button();
             txtExclusions = new TextBox();
-            label5 = new Label();
+            rtbHelp = new RichTextBox();
             gridChanges = new DataGridView();
             progressBar1 = new ProgressBar();
             lblStatus = new Label();
@@ -61,7 +60,7 @@
             tabControls.Location = new Point(0, 0);
             tabControls.Name = "tabControls";
             tabControls.SelectedIndex = 0;
-            tabControls.Size = new Size(684, 280);
+            tabControls.Size = new Size(850, 560);
             tabControls.TabIndex = 0;
             // 
             // tabHome
@@ -76,7 +75,7 @@
             tabHome.Location = new Point(4, 24);
             tabHome.Name = "tabHome";
             tabHome.Padding = new Padding(3);
-            tabHome.Size = new Size(676, 252);
+            tabHome.Size = new Size(842, 532);
             tabHome.TabIndex = 0;
             tabHome.Text = "1. AT HOME";
             tabHome.UseVisualStyleBackColor = true;
@@ -177,7 +176,7 @@
             tabOffsite.Location = new Point(4, 24);
             tabOffsite.Name = "tabOffsite";
             tabOffsite.Padding = new Padding(3);
-            tabOffsite.Size = new Size(676, 252);
+            tabOffsite.Size = new Size(842, 532);
             tabOffsite.TabIndex = 1;
             tabOffsite.Text = "2. AT OFFSITE";
             tabOffsite.UseVisualStyleBackColor = true;
@@ -281,19 +280,20 @@
             // 
             tabSettings.Controls.Add(btnSaveSettings);
             tabSettings.Controls.Add(txtExclusions);
-            tabSettings.Controls.Add(label5);
+            tabSettings.Controls.Add(rtbHelp);
             tabSettings.Location = new Point(4, 24);
             tabSettings.Name = "tabSettings";
-            tabSettings.Size = new Size(676, 252);
+            tabSettings.Size = new Size(842, 532);
             tabSettings.TabIndex = 2;
             tabSettings.Text = "3. Settings";
             tabSettings.UseVisualStyleBackColor = true;
             // 
             // btnSaveSettings
             // 
-            btnSaveSettings.Location = new Point(430, 140);
+            btnSaveSettings.Anchor = AnchorStyles.Bottom | AnchorStyles.Left;
+            btnSaveSettings.Location = new Point(14, 485);
             btnSaveSettings.Name = "btnSaveSettings";
-            btnSaveSettings.Size = new Size(100, 30);
+            btnSaveSettings.Size = new Size(120, 35);
             btnSaveSettings.TabIndex = 2;
             btnSaveSettings.Text = "Save Settings";
             btnSaveSettings.UseVisualStyleBackColor = true;
@@ -301,42 +301,47 @@
             // 
             // txtExclusions
             // 
-            txtExclusions.Location = new Point(14, 140);
+            txtExclusions.Anchor = AnchorStyles.Top | AnchorStyles.Bottom | AnchorStyles.Left;
+            txtExclusions.Font = new Font("Consolas", 10F);
+            txtExclusions.Location = new Point(14, 15);
             txtExclusions.Multiline = true;
             txtExclusions.Name = "txtExclusions";
             txtExclusions.ScrollBars = ScrollBars.Vertical;
-            txtExclusions.Size = new Size(400, 100);
+            txtExclusions.Size = new Size(300, 460);
             txtExclusions.TabIndex = 1;
             // 
-            // label5
+            // rtbHelp
             // 
-            label5.AutoSize = true;
-            label5.Location = new Point(14, 10);
-            label5.Name = "label5";
-            label5.Size = new Size(320, 210);
-            label5.TabIndex = 0;
-            label5.Text = resources.GetString("label5.Text");
+            rtbHelp.Anchor = AnchorStyles.Top | AnchorStyles.Bottom | AnchorStyles.Left | AnchorStyles.Right;
+            rtbHelp.BackColor = SystemColors.Window;
+            rtbHelp.BorderStyle = BorderStyle.None;
+            rtbHelp.Location = new Point(330, 15);
+            rtbHelp.Name = "rtbHelp";
+            rtbHelp.ReadOnly = true;
+            rtbHelp.ScrollBars = RichTextBoxScrollBars.Vertical;
+            rtbHelp.Size = new Size(500, 505);
+            rtbHelp.TabIndex = 0;
+            rtbHelp.Text = "";
             // 
             // gridChanges
             // 
             gridChanges.AllowUserToAddRows = false;
             gridChanges.AllowUserToDeleteRows = false;
-            gridChanges.Anchor = AnchorStyles.Top | AnchorStyles.Bottom | AnchorStyles.Left | AnchorStyles.Right;
             gridChanges.BackgroundColor = Color.White;
             gridChanges.ColumnHeadersHeightSizeMode = DataGridViewColumnHeadersHeightSizeMode.AutoSize;
-            gridChanges.Location = new Point(4, 286);
+            gridChanges.Location = new Point(4, 225);
             gridChanges.Name = "gridChanges";
             gridChanges.ReadOnly = true;
             gridChanges.RowHeadersVisible = false;
-            gridChanges.Size = new Size(676, 220);
+            gridChanges.Size = new Size(842, 300);
             gridChanges.TabIndex = 1;
             // 
             // progressBar1
             // 
             progressBar1.Dock = DockStyle.Bottom;
-            progressBar1.Location = new Point(0, 528);
+            progressBar1.Location = new Point(0, 577);
             progressBar1.Name = "progressBar1";
-            progressBar1.Size = new Size(684, 23);
+            progressBar1.Size = new Size(850, 23);
             progressBar1.TabIndex = 2;
             // 
             // lblStatus
@@ -344,7 +349,7 @@
             lblStatus.AutoSize = true;
             lblStatus.Dock = DockStyle.Bottom;
             lblStatus.Font = new Font("Segoe UI", 9F, FontStyle.Bold);
-            lblStatus.Location = new Point(0, 508);
+            lblStatus.Location = new Point(0, 557);
             lblStatus.Name = "lblStatus";
             lblStatus.Padding = new Padding(5, 0, 0, 5);
             lblStatus.Size = new Size(48, 20);
@@ -355,7 +360,7 @@
             // 
             lblStats.Anchor = AnchorStyles.Bottom | AnchorStyles.Right;
             lblStats.AutoSize = true;
-            lblStats.Location = new Point(550, 513);
+            lblStats.Location = new Point(730, 562);
             lblStats.Name = "lblStats";
             lblStats.Size = new Size(0, 15);
             lblStats.TabIndex = 4;
@@ -364,7 +369,7 @@
             // 
             AutoScaleDimensions = new SizeF(7F, 15F);
             AutoScaleMode = AutoScaleMode.Font;
-            ClientSize = new Size(684, 551);
+            ClientSize = new Size(850, 600);
             Controls.Add(lblStats);
             Controls.Add(lblStatus);
             Controls.Add(progressBar1);
@@ -394,7 +399,7 @@
         private System.Windows.Forms.ProgressBar progressBar1;
         private System.Windows.Forms.Label lblStatus;
         private System.Windows.Forms.Label lblStats;
-        private System.Windows.Forms.Label label5;
+        private System.Windows.Forms.RichTextBox rtbHelp;
         private System.Windows.Forms.TextBox txtExclusions;
         private System.Windows.Forms.Button btnSaveSettings;
         private System.Windows.Forms.GroupBox grpHomeActions;

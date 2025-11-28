@@ -117,20 +117,4 @@
   <resheader name="writer">
     <value>System.Resources.ResXResourceWriter, System.Windows.Forms, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089</value>
   </resheader>
-  <data name="label5.Text" xml:space="preserve">
-    <value>Standard File Globbing Patterns:
-
-1. Root Only: 
-   file.txt        (Excludes file.txt only in the main folder)
-   /Build/         (Excludes Build folder only in the main folder)
-
-2. Recursive (Anywhere):
-   **/*.tmp        (Excludes .tmp files in ANY subfolder)
-   **/bin/         (Excludes bin folder in ANY subfolder)
-
-3. Wildcards:
-   *  = Matches any characters (except /)
-   ** = Matches any directory depth
-   ?  = Matches exactly one character</value>
-  </data>
 </root>
